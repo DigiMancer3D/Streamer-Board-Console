@@ -1,0 +1,13 @@
+{
+  "format": "SBC_FULL_BUNDLE_V1",
+  "version": "v0_4_5",
+  "created_at_text": "2026-07-08 16:21:42",
+  "included_external_apps": {
+    "bitninja_mocap": "/home/z0m8i3d/BitninjaMocapLite_dev_export/BitninjaMocapLite_extended_service_update_sources_20260704_102145",
+    "deck_card_widget": "/home/z0m8i3d/Deck_Card_Widget/program",
+    "g502v": "/home/z0m8i3d/g502 vis",
+    "soundcard": "/home/z0m8i3d/sound card",
+    "swar": "/home/z0m8i3d/SWAR/SWAR_v0_6_0_RC1_R2"
+  },
+  "privacy_note": "Common runtime/private folders were excluded: .git, .venv, venv, node_modules, logs, cache, backups, console instances, board instances, export, zip/tar artifacts."
+}
