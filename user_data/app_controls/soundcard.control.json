@@ -1,0 +1,13 @@
+{
+  "app_id": "soundcard",
+  "hotkey_map": {
+    "move_down": "s",
+    "move_left": "a",
+    "move_right": "d",
+    "move_up": "w"
+  },
+  "hotkeys_enabled": false,
+  "mode": "local",
+  "note": "SBC adapter control file. Native app support reads this from the app folder.",
+  "protocol": "SBC_ADAPTER_CONTROL_V1"
+}
