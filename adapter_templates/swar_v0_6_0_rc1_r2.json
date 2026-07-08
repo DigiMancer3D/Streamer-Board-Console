@@ -1,0 +1,22 @@
+{
+  "app_id": "swar_v0_6_0_rc1_r2",
+  "control_file": "user_data/app_controls/swar_v0_6_0_rc1_r2.control.json",
+  "default_hotkeys": [],
+  "default_path": "/home/z0m8i3d/SWAR/SWAR_v0_6_0_RC1_R2/",
+  "display_name": "Swar V0 6 0 Rc1 R2",
+  "entry_file": "launch_standard.sh",
+  "launch_mode": "shell",
+  "notes": "Custom template created from SBC.",
+  "settings_files": [],
+  "supports": {
+    "emoji_sync": false,
+    "hotkey_remap": false,
+    "hotkeys_toggle": false,
+    "launch_close": true,
+    "local_live_toggle": false,
+    "pause_park_suspend": true,
+    "resource_monitor": true,
+    "restart": true,
+    "theme_sync": false
+  }
+}
