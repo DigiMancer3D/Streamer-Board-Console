@@ -1,0 +1,41 @@
+{
+  "active_profile": "Clean Visuals",
+  "applied": [
+    {
+      "app_id": "g502v",
+      "display_name": "G502V",
+      "hotkeys_enabled": false,
+      "launch_message": "",
+      "mode": "local",
+      "written": [
+        "/mnt/data/Streamer_Board_Console_MVP_v0_2_6/user_data/app_controls/g502v.control.json"
+      ]
+    },
+    {
+      "app_id": "soundcard",
+      "display_name": "Soundcard",
+      "hotkeys_enabled": false,
+      "launch_message": "",
+      "mode": "local",
+      "written": [
+        "/mnt/data/Streamer_Board_Console_MVP_v0_2_6/user_data/app_controls/soundcard.control.json"
+      ]
+    }
+  ],
+  "launch_apps": false,
+  "missing": [],
+  "profile": {
+    "apps": {
+      "g502v": {
+        "hotkeys_enabled": false,
+        "mode": "local"
+      },
+      "soundcard": {
+        "hotkeys_enabled": false,
+        "mode": "local"
+      }
+    },
+    "description": "Turn off overlay hotkeys for both apps while leaving windows running.",
+    "name": "Clean Visuals"
+  }
+}

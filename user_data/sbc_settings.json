@@ -1,0 +1,119 @@
+{
+  "adapter_protocol": {
+    "adapter_controls_tab": true,
+    "editable_hotkey_map": true,
+    "g502v_handle_input_gate": true,
+    "native_doctor": true,
+    "version": "SBC_ADAPTER_CONTROL_V1",
+    "write_app_local_controls": true
+  },
+  "adapters": {
+    "how2_integrate": true,
+    "inline_new_template_entry": true,
+    "template_editor": true,
+    "templates": true
+  },
+  "app_name": "Streamer Board & Console",
+  "apps": {
+    "external_process_detection": true
+  },
+  "default_capture": {
+    "chroma_key": "#00ff00",
+    "height": 1080,
+    "output_scale": 0.5,
+    "width": 1920
+  },
+  "g502v": {
+    "yaw_direction_delta_patch": true
+  },
+  "performance": {
+    "animated_frames_cached": false
+  },
+  "pin_board_instances": {
+    "command_poll_ms": 350,
+    "kill_with_mem": true,
+    "rise_pin_out": true,
+    "track_heartbeats": true
+  },
+  "process_control": {
+    "detached_app_launch": true,
+    "force_kill": true,
+    "log_redirect": true
+  },
+  "resource_modes": {
+    "Light": {
+      "animation_fps": 10,
+      "description": "Low timer rate for simple motion."
+    },
+    "Normal": {
+      "animation_fps": 24,
+      "description": "Smooth enough for stream graphics."
+    },
+    "Performance": {
+      "animation_fps": 30,
+      "description": "Higher load; use only when needed."
+    },
+    "Static": {
+      "animation_fps": 0,
+      "description": "No animation timer; redraw only on edits."
+    }
+  },
+  "studio_profiles": {
+    "Default": {
+      "apps": {
+        "g502v": {
+          "hotkeys_enabled": true,
+          "launch": false
+        },
+        "soundcard": {
+          "hotkeys_enabled": true,
+          "launch": false
+        }
+      },
+      "boards": [],
+      "hotkeys_enabled": true,
+      "resource_mode": "Static"
+    },
+    "apply_launch_apps": true,
+    "custom_profile_editor": true,
+    "default_profiles": [
+      "gaming",
+      "talk_podcast",
+      "clean_visuals",
+      "full_control",
+      "obs_safe_low_motion"
+    ],
+    "dynamic_active_adapters": true,
+    "enabled": true,
+    "gui_enabled": true,
+    "path_constant_fix": "USER_DATA",
+    "profile_app_actions": true,
+    "quick_button_table_refresh_fix": true,
+    "startup_profile": true,
+    "strict_profile_actions": true
+  },
+  "tooling": {
+    "adapter_doctor_import_fix": true,
+    "class_method_check": true,
+    "custom_profile_check": true,
+    "fast_exit_log_tail": true,
+    "process_scan_check": true,
+    "profile_gui_logic_check": true,
+    "runtime_import_check": true,
+    "selftest": true,
+    "selftest_newline_fix": true,
+    "soundcard_indent_aware_patcher": true,
+    "soundcard_repair": true,
+    "strict_action_dummy_app_fix": true
+  },
+  "ui": {
+    "persistent_tree_selection": true,
+    "right_click_hot_options": true,
+    "window_rescue": true,
+    "wrapping_control_rows": true
+  },
+  "user_data": {
+    "backup_migrate": true
+  },
+  "version": "0.3.7-mvp"
+}
