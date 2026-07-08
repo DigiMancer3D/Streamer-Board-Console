@@ -1,0 +1,14 @@
+{
+  "apps": {
+    "g502v": {
+      "hotkeys_enabled": false,
+      "mode": "local"
+    },
+    "soundcard": {
+      "hotkeys_enabled": false,
+      "mode": "local"
+    }
+  },
+  "description": "Turn off overlay hotkeys for both apps while leaving windows running.",
+  "name": "Clean Visuals"
+}

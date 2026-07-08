@@ -1,0 +1,36 @@
+{
+  "apps": {
+    "bitninja_mocap": {
+      "action": "keep",
+      "hotkeys_enabled": true,
+      "mode": "local"
+    },
+    "deck_card_widget": {
+      "action": "close",
+      "hotkeys_enabled": false,
+      "mode": "local"
+    },
+    "g502v": {
+      "action": "close",
+      "hotkeys_enabled": false,
+      "mode": "local"
+    },
+    "soundcard": {
+      "action": "close",
+      "hotkeys_enabled": false,
+      "mode": "local"
+    },
+    "swar": {
+      "action": "close",
+      "hotkeys_enabled": false,
+      "mode": "local"
+    },
+    "swar_v0_6_0_rc1_r2": {
+      "action": "close",
+      "hotkeys_enabled": false,
+      "mode": "local"
+    }
+  },
+  "description": "Talking mode: keep G502V visual live, pause Soundcard movement hotkeys.",
+  "name": "Talk / Podcast"
+}

@@ -1,0 +1,14 @@
+{
+  "apps": {
+    "g502v": {
+      "hotkeys_enabled": false,
+      "mode": "local"
+    },
+    "soundcard": {
+      "hotkeys_enabled": false,
+      "mode": "local"
+    }
+  },
+  "description": "Reduce accidental input lights/movement while keeping apps open for OBS capture.",
+  "name": "OBS Safe / Low Motion"
+}

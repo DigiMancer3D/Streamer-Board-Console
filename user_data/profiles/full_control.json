@@ -1,0 +1,14 @@
+{
+  "apps": {
+    "g502v": {
+      "hotkeys_enabled": true,
+      "mode": "local"
+    },
+    "soundcard": {
+      "hotkeys_enabled": true,
+      "mode": "local"
+    }
+  },
+  "description": "Everything responsive: Soundcard and G502V hotkeys enabled.",
+  "name": "Full Control"
+}
