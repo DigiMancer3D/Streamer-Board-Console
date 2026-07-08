@@ -40,7 +40,7 @@ Streamer Board & Console can run by itself, but it is designed to work best with
 | --- | --- | --- |
 | Soundcard | Microphone / audio visualizer for stream scenes | Native hotkey control supported |
 | G502V | Mouse / G502 visualizer for OBS and input feedback | Native hotkey control supported |
-| Bitninja Mocap Lite | OBS-focused VTuber mocap helper | Launch / close / profile template |
+| Bitninja Mocap Lite | OBS-focused VTuber mocap | Launch / close / profile template |
 | Deck Card Widget | Low-resource deck-card OBS overlay controller | Launch / close / profile template |
 | SWAR Script Writer/Reader | Script writer / reader for show planning | Launch / close / profile template |
 
@@ -128,10 +128,6 @@ Creates isolated `.sbconsole` console copies. Each copy can have its own:
 - app controls
 
 This is useful when one machine needs multiple show setups.
-
-### Release Prep
-
-Builds a clean GitHub upload folder while excluding runtime-only files such as logs, caches, board instances, console instances, `.venv`, and `__pycache__`.
 
 ---
 
@@ -261,34 +257,3 @@ The full bundle script removes common private/runtime data such as `.git`, `.ven
 
 ---
 
-## Public release checklist
-
-Before uploading to GitHub, run:
-
-```bash
-./tools/sbc_selftest.sh
-./tools/sbc_release_prep.py --inspect
-```
-
-Confirm the upload folder does **not** contain:
-
-- `.venv`
-- `__pycache__`
-- `*.pyc`
-- logs
-- cache
-- console instances
-- board instances
-- personal runtime backups
-
----
-
-## Project status
-
-This is an initial public release of the working Streamer Board & Console system. The core local workflow is usable now, while deeper native integrations for each external app can continue to improve over time.
-
----
-
-## License
-
-Use the license file included in this repository, if present. Companion apps may have their own licenses.
