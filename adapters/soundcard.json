@@ -1,0 +1,44 @@
+{
+  "app_id": "soundcard",
+  "display_name": "Soundcard",
+  "default_path": "~/sound card",
+  "launch_mode": "venv_python",
+  "entry_file": "soundcard.py",
+  "settings_files": [
+    "soundcard.crumbs"
+  ],
+  "control_file": "user_data/app_controls/soundcard.control.json",
+  "supports": {
+    "launch_close": true,
+    "restart": true,
+    "resource_monitor": true,
+    "pause_park_suspend": true,
+    "hotkeys_toggle": "requires_app_patch",
+    "hotkey_remap": "requires_app_patch",
+    "local_live_toggle": false,
+    "theme_sync": "future",
+    "emoji_sync": false
+  },
+  "default_hotkeys": [
+    {
+      "action_id": "move_up",
+      "key": "w",
+      "action": "move visual up"
+    },
+    {
+      "action_id": "move_left",
+      "key": "a",
+      "action": "move visual left"
+    },
+    {
+      "action_id": "move_down",
+      "key": "s",
+      "action": "move visual down"
+    },
+    {
+      "action_id": "move_right",
+      "key": "d",
+      "action": "move visual right"
+    }
+  ]
+}

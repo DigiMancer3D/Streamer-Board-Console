@@ -1,0 +1,24 @@
+{
+  "app_id": "swar",
+  "control_file": "user_data/app_controls/swar.control.json",
+  "default_hotkeys": [],
+  "default_path": "/home/z0m8i3d/SWAR/SWAR_v0_6_0_RC1_R2/",
+  "display_name": "SWAR Script Writer/Reader",
+  "entry_file": "launch_reader.sh",
+  "launch_mode": "shell",
+  "notes": "Template only. Update default_path if your current SWAR folder is a newer version.",
+  "settings_files": [
+    "SWAR.udata"
+  ],
+  "supports": {
+    "emoji_sync": false,
+    "hotkey_remap": false,
+    "hotkeys_toggle": false,
+    "launch_close": true,
+    "local_live_toggle": false,
+    "pause_park_suspend": true,
+    "resource_monitor": true,
+    "restart": true,
+    "theme_sync": "future"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "app_id": "bitninja_mocap",
+  "control_file": "user_data/app_controls/bitninja_mocap.control.json",
+  "default_hotkeys": [],
+  "default_path": "/home/z0m8i3d/BitninjaMocapLite_dev_export/BitninjaMocapLite_extended_service_update_sources_20260704_102145/",
+  "display_name": "Bitninja Mocap Lite",
+  "entry_file": "run_bitninja_lite_nvidia_desktopgl.sh",
+  "launch_mode": "shell",
+  "notes": "Template only. Enable after confirming local path and launch script.",
+  "settings_files": [],
+  "supports": {
+    "emoji_sync": false,
+    "hotkey_remap": false,
+    "hotkeys_toggle": false,
+    "launch_close": true,
+    "local_live_toggle": "future",
+    "pause_park_suspend": true,
+    "resource_monitor": true,
+    "restart": true,
+    "theme_sync": "future"
+  }
+}

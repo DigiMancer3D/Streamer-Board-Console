@@ -1,0 +1,22 @@
+{
+  "app_id": "deck_card_widget",
+  "control_file": "user_data/app_controls/deck_card_widget.control.json",
+  "default_hotkeys": [],
+  "default_path": "/home/z0m8i3d/Deck_Card_Widget/program/",
+  "display_name": "Deck Card Widget",
+  "entry_file": "launch_deck_card_widget_venv.sh",
+  "launch_mode": "shell",
+  "notes": "Template only. Edit entry_file if your local launcher has a different name.",
+  "settings_files": [],
+  "supports": {
+    "emoji_sync": true,
+    "hotkey_remap": false,
+    "hotkeys_toggle": false,
+    "launch_close": true,
+    "local_live_toggle": "future",
+    "pause_park_suspend": true,
+    "resource_monitor": true,
+    "restart": true,
+    "theme_sync": "future"
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "app_id": "g502v",
+  "display_name": "G502V",
+  "default_path": "~/g502 vis",
+  "launch_mode": "venv_python",
+  "entry_file": "g502viz.py",
+  "settings_files": [
+    "settings.crumbs",
+    "mappings.json"
+  ],
+  "control_file": "user_data/app_controls/g502v.control.json",
+  "supports": {
+    "launch_close": true,
+    "restart": true,
+    "resource_monitor": true,
+    "pause_park_suspend": true,
+    "hotkeys_toggle": "requires_app_patch",
+    "hotkey_remap": true,
+    "local_live_toggle": false,
+    "theme_sync": "future",
+    "emoji_sync": false
+  },
+  "default_hotkeys": [
+    {
+      "action_id": "nudge_up",
+      "key": "up",
+      "action": "nudge visual up"
+    },
+    {
+      "action_id": "nudge_down",
+      "key": "down",
+      "action": "nudge visual down"
+    },
+    {
+      "action_id": "nudge_left",
+      "key": "left",
+      "action": "nudge visual left"
+    },
+    {
+      "action_id": "nudge_right",
+      "key": "right",
+      "action": "nudge visual right"
+    }
+  ]
+}
