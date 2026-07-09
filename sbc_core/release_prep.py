@@ -5,6 +5,8 @@ import os
 import shutil
 import stat
 import time
+import zipfile
+import re
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +53,7 @@ PUBLIC_ROOT_FILES = {
     "launch_pin_board.sh",
     "streamer_board_console.py",
     "pin_board_instance.py",
+    "icon.png",
 }
 
 PUBLIC_DIRS = {
@@ -100,6 +103,99 @@ def _is_excluded(path: Path, rel: Path) -> bool:
     return False
 
 
+def _safe_leaf(value: str) -> str:
+    out = "".join(ch.lower() if ch.isalnum() else "_" for ch in str(value)).strip("_")
+    while "__" in out:
+        out = out.replace("__", "_")
+    return out or "app"
+
+
+def _private_markers() -> list[str]:
+    markers = []
+    home = os.environ.get("HOME", "").strip()
+    user = os.environ.get("USER", "").strip()
+    if home:
+        markers.append(home)
+    if user:
+        markers.append(f"/home/{user}")
+    return sorted(set(m for m in markers if m), key=len, reverse=True)
+
+
+def _sanitize_text_for_release(text: str) -> str:
+    data = str(text)
+    home = os.environ.get("HOME", "").strip()
+    user = os.environ.get("USER", "").strip()
+    for marker in _private_markers():
+        data = data.replace(marker, "~")
+    if user:
+        data = data.replace(user, "$USER")
+    if home:
+        data = data.replace(home, "~")
+    data = re.sub(r"/home/[^/\s'\"]+", "~", data)
+    data = data.replace("$HOME/<redacted_path>", "~/SBC_APPS/configure_app_path")
+    data = data.replace("<redacted_path>", "configure_app_path")
+    data = re.sub(r"(?i)[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", "<email-redacted>", data)
+    return data
+
+
+def _sanitize_default_path(value: Any, app_id: str = "") -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return raw
+    raw = _sanitize_text_for_release(raw)
+    if "<redacted_path>" in raw or raw in {"~", "$HOME", "$HOME/<redacted_path>"}:
+        return f"~/SBC_APPS/{_safe_leaf(app_id or 'custom_app')}"
+    raw = raw.replace("$HOME/", "~/")
+    return raw
+
+
+def _sanitize_json_for_release(value: Any, parent_key: str = "", app_id: str = "") -> Any:
+    if isinstance(value, dict):
+        local_app_id = str(value.get("app_id") or app_id or "")
+        out: dict[str, Any] = {}
+        for key, item in value.items():
+            skey = str(key)
+            if skey == "written":
+                out[skey] = []
+            elif skey in {"app_root", "user_data", "release_dir", "backup_path"}:
+                out[skey] = "<local-path-omitted>"
+            elif skey == "default_path":
+                out[skey] = _sanitize_default_path(item, local_app_id)
+            else:
+                out[skey] = _sanitize_json_for_release(item, skey, local_app_id)
+        return out
+    if isinstance(value, list):
+        return [_sanitize_json_for_release(item, parent_key, app_id) for item in value]
+    if isinstance(value, str):
+        return _sanitize_text_for_release(value)
+    return value
+
+
+def _copy_release_file(src: Path, dest: Path, rel: Path) -> None:
+    """Copy a public/share file, sanitizing JSON/text that may contain local paths."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    suffix = src.suffix.lower()
+    if suffix == ".json":
+        try:
+            data = json.loads(src.read_text(encoding="utf-8"))
+            data = _sanitize_json_for_release(data)
+            dest.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            return
+        except Exception:
+            pass
+    if suffix in {".md", ".txt", ".sh", ".desktop", ".cfg", ".ini", ".toml", ".yaml", ".yml"}:
+        try:
+            dest.write_text(_sanitize_text_for_release(src.read_text(encoding="utf-8", errors="replace")), encoding="utf-8")
+            try:
+                dest.chmod(src.stat().st_mode)
+            except Exception:
+                pass
+            return
+        except Exception:
+            pass
+    shutil.copy2(src, dest)
+
+
 def _copy_public_tree(dest: Path) -> tuple[list[str], list[str]]:
     copied: list[str] = []
     skipped: list[str] = []
@@ -116,7 +212,7 @@ def _copy_public_tree(dest: Path) -> tuple[list[str], list[str]]:
                     continue
                 out = dest / rel
                 out.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(item, out)
+                _copy_release_file(item, out, rel)
                 copied.append(str(rel))
             else:
                 skipped.append(str(rel))
@@ -136,7 +232,7 @@ def _copy_public_tree(dest: Path) -> tuple[list[str], list[str]]:
                     continue
                 out = dest / r
                 out.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(path, out)
+                _copy_release_file(path, out, r)
                 copied.append(str(r))
 
     return copied, skipped
@@ -209,7 +305,7 @@ def _write_release_docs(dest: Path, manifest: dict[str, Any]) -> list[str]:
 
         ## Soundcard
 
-        Repo: `DigiMancer3D/soundcard`
+        Repo: `$GITHUB_USER/soundcard`
 
         Minimum public update:
 
@@ -226,7 +322,7 @@ def _write_release_docs(dest: Path, manifest: dict[str, Any]) -> list[str]:
 
         ## G502V
 
-        Repo: `DigiMancer3D/G502V`
+        Repo: `$GITHUB_USER/G502V`
 
         Minimum public update:
 
@@ -390,8 +486,8 @@ def build_github_upload(output_dir: str | Path | None = None, *, clean_first: bo
         "format": FORMAT_VERSION,
         "created_at": time.time(),
         "created_at_text": _now_text(),
-        "app_root": str(APP_ROOT),
-        "user_data": str(USER_DATA),
+        "app_root": "<local-path-omitted>",
+        "user_data": "<local-path-omitted>",
         "package_version": package_version(),
         "release_dir": str(dest),
         "copied_count": len(copied),
@@ -464,3 +560,204 @@ def clean_release_exports() -> dict[str, Any]:
             shutil.rmtree(path)
             removed.append(str(path))
     return {"ok": True, "removed": removed, "removed_count": len(removed), "export_dir": str(EXPORT_DIR)}
+
+
+SHARE_FORMAT_VERSION = "SBC_FRIEND_SHARE_BUNDLE_V1"
+
+
+def default_share_name() -> str:
+    return f"Streamer_Board_Console_SHAREABLE_{package_version()}_{time.strftime('%Y%m%d_%H%M%S')}"
+
+
+def default_share_zip_path() -> Path:
+    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+    return EXPORT_DIR / f"{default_share_name()}.zip"
+
+
+def latest_share_bundle() -> Path:
+    if EXPORT_DIR.exists():
+        candidates = sorted(EXPORT_DIR.glob("Streamer_Board_Console_SHAREABLE_*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if candidates:
+            return candidates[0]
+    return EXPORT_DIR / f"Streamer_Board_Console_SHAREABLE_{package_version()}_NONE.zip"
+
+
+def _write_friend_share_docs(dest: Path, manifest: dict[str, Any]) -> list[str]:
+    docs: list[str] = []
+    version = manifest.get("package_version", package_version())
+    readme = f"""
+    # Streamer Board & Console Friend Share ({version})
+
+    This zip is meant for sharing a runnable, customizable copy of Streamer Board & Console.
+
+    ## What is included
+
+    - Main Streamer Board & Console app files.
+    - Pin Board files.
+    - Core modules, tools, adapters, and adapter templates.
+    - Safe user customization data such as profiles, app controls, boards, emoji, and settings.
+
+    ## What is excluded
+
+    - `.venv/`
+    - Python cache files.
+    - Logs, backups, and generated export folders.
+    - Console-copy runtime instances.
+    - Local cache and live board instance data.
+    - Personal absolute launch paths.
+
+    ## First run
+
+    ```bash
+    chmod +x install_kubuntu.sh launch_streamer_board_console.sh tools/*.sh tools/*.py
+    ./install_kubuntu.sh
+    ./launch_streamer_board_console.sh
+    ```
+
+    ## Friend setup note
+
+    Profiles and adapters are included, but each friend may need to open the adapter/template editor and update app paths so they point to apps on their own computer.
+    """
+    _write_text(dest / "FRIEND_SHARE_README.md", readme)
+    docs.append("FRIEND_SHARE_README.md")
+    return docs
+
+
+def build_share_bundle(output_zip: str | Path | None = None, *, clean_first: bool = True) -> dict[str, Any]:
+    """Build a user-shareable zip with safe custom data and without personal paths."""
+    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+    zip_path = Path(output_zip).expanduser() if output_zip else default_share_zip_path()
+    if zip_path.exists() and clean_first:
+        zip_path.unlink()
+
+    build_root = EXPORT_DIR / f".share_build_{int(time.time())}"
+    if build_root.exists():
+        shutil.rmtree(build_root)
+    share_root = build_root / zip_path.stem
+
+    try:
+        share_root.mkdir(parents=True, exist_ok=True)
+        copied, skipped = _copy_public_tree(share_root)
+
+        manifest = {
+            "format": SHARE_FORMAT_VERSION,
+            "created_at": time.time(),
+            "created_at_text": _now_text(),
+            "package_version": package_version(),
+            "zip_name": zip_path.name,
+            "copied_count": len(copied),
+            "skipped_count": len(skipped),
+            "copied": copied,
+            "skipped_sample": skipped[:200],
+            "privacy": {
+                "local_paths_omitted": True,
+                "emails_redacted": True,
+                "runtime_logs_excluded": True,
+                "cache_excluded": True,
+                "backups_excluded": True,
+                "console_runtime_excluded": True,
+            },
+        }
+        docs = _write_friend_share_docs(share_root, manifest)
+        manifest["share_docs"] = docs
+        (share_root / "SBC_FRIEND_SHARE_MANIFEST.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+        zip_path.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
+            for path in sorted(share_root.rglob("*")):
+                if path.is_file():
+                    z.write(path, path.relative_to(build_root))
+
+        inspect = inspect_share_bundle(zip_path)
+        return {
+            "ok": bool(inspect.get("ok")),
+            "zip_path": str(zip_path),
+            "copied_count": len(copied),
+            "skipped_count": len(skipped),
+            "sanitized_files": [rel for rel in copied if rel.endswith((".json", ".md", ".txt", ".sh", ".desktop"))],
+            "manifest": manifest,
+            "inspect": inspect,
+        }
+    finally:
+        if build_root.exists():
+            shutil.rmtree(build_root)
+
+
+def inspect_share_bundle(path: str | Path | None = None) -> dict[str, Any]:
+    zip_path = Path(path).expanduser() if path else latest_share_bundle()
+    if not zip_path.exists():
+        return {"ok": False, "exists": False, "zip_path": str(zip_path), "error": "share zip not found"}
+
+    required_suffixes = [
+        "README.md",
+        "FRIEND_SHARE_README.md",
+        "SBC_FRIEND_SHARE_MANIFEST.json",
+        "streamer_board_console.py",
+        "sbc_core/studio_profiles.py",
+        "sbc_core/release_prep.py",
+        "tools/sbc_release_prep.py",
+    ]
+    forbidden_parts = [
+        ".venv/",
+        "__pycache__/",
+        "/logs/",
+        "/cache/",
+        "/backups/",
+        "/console_copies/",
+        "/console_instances/",
+        "/board_instances/",
+        "/export/",
+    ]
+
+    private_marker_hits: list[str] = []
+    forbidden_present: list[str] = []
+    manifest: dict[str, Any] = {}
+
+    with zipfile.ZipFile(zip_path) as z:
+        names = z.namelist()
+        file_names = [name for name in names if not name.endswith("/")]
+        required_status = {rel: any(name.endswith(rel) for name in file_names) for rel in required_suffixes}
+
+        for name in file_names:
+            normalized = "/" + name
+            if any(part in normalized for part in forbidden_parts):
+                forbidden_present.append(name)
+
+            if name.endswith("SBC_FRIEND_SHARE_MANIFEST.json"):
+                try:
+                    manifest = json.loads(z.read(name).decode("utf-8"))
+                except Exception as exc:
+                    manifest = {"error": str(exc)}
+
+            if name.endswith((".json", ".md", ".txt", ".sh", ".desktop")):
+                try:
+                    text = z.read(name).decode("utf-8", errors="replace")
+                except Exception:
+                    continue
+                markers = []
+                if re.search(r"/home/[^/\s'\"]+", text):
+                    markers.append("/home/<user>")
+                if re.search(r"(?i)[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", text):
+                    markers.append("<email>")
+                if "$HOME/<redacted_path>" in text:
+                    markers.append("$HOME/<redacted_path>")
+                if markers:
+                    private_marker_hits.append(f"{name}: {', '.join(sorted(set(markers)))}")
+
+    ok = (
+        bool(file_names)
+        and all(required_status.values())
+        and not forbidden_present
+        and not private_marker_hits
+        and manifest.get("format") == SHARE_FORMAT_VERSION
+    )
+    return {
+        "ok": ok,
+        "exists": True,
+        "zip_path": str(zip_path),
+        "file_count": len(file_names),
+        "manifest": manifest,
+        "required": required_status,
+        "forbidden_present": forbidden_present[:100],
+        "private_marker_hits": private_marker_hits[:100],
+    }
