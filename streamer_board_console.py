@@ -27,7 +27,7 @@ from sbc_core.user_data_backup import create_backup, inspect_backup, import_back
 from sbc_core.adapter_templates import ensure_adapter_templates, list_templates, enable_template, disable_adapter, update_template, create_template_from_path_entry, integration_guide_text
 from sbc_core.previous_build_migrate import migrate_latest_previous_build, find_previous_builds
 from sbc_core.console_copier import create_console_copy, list_console_files, read_console_file, launch_console_copy, cleanup_selftest_and_broken_copies
-from sbc_core.release_prep import build_github_upload, inspect_release_folder, latest_release_folder, clean_release_exports
+from sbc_core.release_prep import build_github_upload, inspect_release_folder, latest_release_folder, clean_release_exports, build_share_bundle, inspect_share_bundle, latest_share_bundle
 
 def json_dump_short(value):
     try:
@@ -667,9 +667,8 @@ class StreamerBoardConsole:
             return
 
         requested_action_run = bool(launch_apps) if launch_apps is not None else bool(getattr(self, "profile_launch_var", tk.BooleanVar(value=False)).get())
-        # Per-app profile actions are strict. This runs saved Launch/Close/Restart/Pause/Resume actions, but never turns Keep into Launch.
-        do_launch = False
-        result = apply_profile(name, self.apps, launch_apps=do_launch)
+        # "Apply Saved Profile" writes control files only. "+ Run Actions" also runs the saved Launch/Close/Restart/Pause/Resume actions.
+        result = apply_profile(name, self.apps, launch_apps=requested_action_run)
         if result.get("ok"):
             applied = result.get("applied", [])
             details = ", ".join(
@@ -678,15 +677,22 @@ class StreamerBoardConsole:
             )
             action_notes = [item.get("action_message", "") or item.get("launch_message", "") for item in applied if item.get("action_message") or item.get("launch_message")]
             suffix = (" | " + " | ".join(action_notes)) if action_notes else ""
-            self.profile_status_var.set(f"Applied saved profile {name}: {details}{suffix}")
-            self.status_var.set(f"Applied Studio Profile: {name}{' + actions' if requested_action_run else ''}")
+            status_text = f"Applied saved profile {name}: {details}{suffix}"
+            main_status_text = f"Applied Studio Profile: {name}{' + actions' if requested_action_run else ''}"
+
             if hasattr(self, "profile_combo"):
                 self.profile_var.set(name)
+                # Refresh the editor from the saved profile, but set the final status after this
+                # because profile_changed() writes "Selected profile" into the same status label.
                 self.profile_changed()
+
             self.refresh_boards()
             self.refresh_resources()
             self.refresh_doctor()
             self.refresh_hotkeys()
+
+            self.profile_status_var.set(status_text)
+            self.status_var.set(main_status_text)
         else:
             self.profile_status_var.set(result.get("error", "Profile apply failed."))
 
@@ -1260,20 +1266,22 @@ class StreamerBoardConsole:
     def _build_release_prep(self):
         ttk.Label(
             self.release_tab,
-            text="Release Prep / GitHub Upload Builder",
+            text="Release Prep / Share Builder",
             font=("TkDefaultFont", 12, "bold")
         ).pack(anchor="w")
 
         ttk.Label(
             self.release_tab,
-            text="Build a clean public GitHub upload folder. This excludes .venv, logs, cache, backups, console-copy runtime data, and generated export folders. It also writes release notes, public checklists, and companion-app update notes.",
+            text="Build either a clean public GitHub upload folder for developers or a friend-share zip that carries the app plus safe customizable data. Share zips exclude logs, cache, backups, console-copy runtime data, generated export folders, and personal launch paths.",
             wraplength=1050,
         ).pack(anchor="w", pady=4)
 
         bar = FlowFrame(self.release_tab)
         bar.pack(fill="x", pady=6)
         bar.add_button("Build GitHub Upload Folder", self.build_release_prep_ui)
+        bar.add_button("Build Friend Share Zip", self.build_share_bundle_ui)
         bar.add_button("Inspect Latest Export", self.inspect_release_prep_ui)
+        bar.add_button("Inspect Latest Share Zip", self.inspect_share_bundle_ui)
         bar.add_button("Clean Release Exports", self.clean_release_prep_ui)
 
         self.release_status_var = tk.StringVar(value="Release Prep ready.")
@@ -1320,8 +1328,38 @@ class StreamerBoardConsole:
             self.release_status_var.set(result.get("error", "Release prep build failed."))
         self.refresh_release_prep()
 
+    def build_share_bundle_ui(self):
+        result = build_share_bundle()
+        if result.get("ok"):
+            self.release_status_var.set(
+                f"Built friend share zip: {result.get('zip_path')} ({result.get('copied_count', 0)} files copied)."
+            )
+            rows = [
+                ("Share zip", result.get("zip_path", "")),
+                ("OK", result.get("ok", False)),
+                ("Copied files", result.get("copied_count", 0)),
+                ("Sanitized files", len(result.get("sanitized_files", []))),
+            ]
+            self._release_tree_set(rows)
+        else:
+            self.release_status_var.set(result.get("error", "Friend share build failed."))
+
     def inspect_release_prep_ui(self):
         self.refresh_release_prep()
+
+    def inspect_share_bundle_ui(self):
+        result = inspect_share_bundle(latest_share_bundle())
+        rows = [
+            ("Latest share zip", result.get("zip_path", "")),
+            ("Exists", result.get("exists", False)),
+            ("Share OK", result.get("ok", False)),
+            ("Format", result.get("manifest", {}).get("format", "")),
+            ("Files", result.get("file_count", 0)),
+            ("Forbidden present", json_dump_short(result.get("forbidden_present", []))),
+            ("Private marker hits", json_dump_short(result.get("private_marker_hits", []))),
+        ]
+        self._release_tree_set(rows)
+        self.release_status_var.set(f"Friend share zip: {result.get('zip_path', '')} | OK={result.get('ok', False)}")
 
     def clean_release_prep_ui(self):
         if not messagebox.askyesno("Clean release exports", "Remove generated GitHub upload export folders?"):
