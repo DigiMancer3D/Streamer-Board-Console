@@ -27,7 +27,19 @@ from sbc_core.user_data_backup import create_backup, inspect_backup, import_back
 from sbc_core.adapter_templates import ensure_adapter_templates, list_templates, enable_template, disable_adapter, update_template, create_template_from_path_entry, integration_guide_text
 from sbc_core.previous_build_migrate import migrate_latest_previous_build, find_previous_builds
 from sbc_core.console_copier import create_console_copy, list_console_files, read_console_file, launch_console_copy, cleanup_selftest_and_broken_copies
-from sbc_core.release_prep import build_github_upload, inspect_release_folder, latest_release_folder, clean_release_exports, build_share_bundle, inspect_share_bundle, latest_share_bundle
+from sbc_core.release_prep import build_github_upload, inspect_release_folder, latest_release_folder, clean_release_exports, build_share_bundle, inspect_share_bundle, latest_share_bundle, is_public_distribution
+from sbc_core.pin_back_colors import (
+    DEFAULT_C1,
+    DEFAULT_C2,
+    CycleCodeDetector,
+    RGBSelectorManager,
+    get_c1,
+    get_c2,
+    get_default_pin_back,
+    normalize_hex_color,
+    reset_palette,
+    set_default_pin_back,
+)
 
 def json_dump_short(value):
     try:
@@ -51,6 +63,13 @@ class StreamerBoardConsole:
 
         self.status_var = tk.StringVar(value="Ready.")
         self.selected_board_var = tk.StringVar(value="")
+        self.pin_back_rgb = RGBSelectorManager(
+            self.root,
+            self.apply_pin_back_rgb_target,
+            status_callback=lambda message: self.status_var.set(message),
+            force_close_callback=self.clear_pin_back_force_flag,
+        )
+        self.pin_back_cycle_detector = CycleCodeDetector(self.root, self.handle_pin_back_cycle_code)
         self.dashboard_selected_key = ""
         self.board_selected_key = ""
         self._build_ui()
@@ -463,6 +482,16 @@ class StreamerBoardConsole:
         self.board_combo.pack(side="left")
         self.board_combo.bind("<<ComboboxSelected>>", lambda _e: self.board_combo_changed())
 
+        bar.add_button("Pin Back (RGB)", self.board_pin_back_rgb)
+        pin_back_group = bar.add_group()
+        self.board_pin_back_c1_var = tk.BooleanVar(value=False)
+        self.board_pin_back_c2_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(pin_back_group, text="C1", variable=self.board_pin_back_c1_var, command=lambda: self.board_pin_back_palette_click("c1")).pack(side="left", padx=2)
+        ttk.Checkbutton(pin_back_group, text="C2", variable=self.board_pin_back_c2_var, command=lambda: self.board_pin_back_palette_click("c2")).pack(side="left", padx=2)
+        self.board_pin_back_force_rgb_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(pin_back_group, text="Force RGB Selector", variable=self.board_pin_back_force_rgb_var, command=self.board_pin_back_force_rgb_changed).pack(side="left", padx=6)
+        bar.add_button("Pin Backs (RBG)", self.all_pin_backs_rgb)
+
         bar.add_button("Rise Controller", self.board_rise_to_top)
         bar.add_button("Rise Pin-Out", self.board_rise_output)
         bar.add_button("Bring-in as Tab", self.bring_board_as_tab)
@@ -474,8 +503,8 @@ class StreamerBoardConsole:
 
         self.boards_tree = self._tree(
             self.boards_tab,
-            ("id", "state", "pid", "pins", "mode", "controller", "output"),
-            ("ID", "State", "PID", "Pins", "Mode", "Controller Window", "Output Window"),
+            ("id", "state", "pid", "pins", "mode", "pin_back", "controller", "output"),
+            ("ID", "State", "PID", "Pins", "Mode", "Pin Back", "Controller Window", "Output Window"),
             height=10,
         )
         self.boards_tree.bind("<<TreeviewSelect>>", lambda _e: self.remember_board_selection())
@@ -1264,25 +1293,38 @@ class StreamerBoardConsole:
 
 
     def _build_release_prep(self):
+        public_mode = is_public_distribution()
+        heading = "Share Builder" if public_mode else "Release Prep / Share Builder"
+        description = (
+            "Build a friend-share zip that carries the app plus safe customizable data. "
+            "Share zips exclude logs, cache, backups, console-copy runtime data, generated export folders, and personal launch paths."
+            if public_mode
+            else
+            "Build either a clean public GitHub upload folder for developers or a friend-share zip that carries the app plus safe customizable data. "
+            "Share zips exclude logs, cache, backups, console-copy runtime data, generated export folders, and personal launch paths."
+        )
+
         ttk.Label(
             self.release_tab,
-            text="Release Prep / Share Builder",
+            text=heading,
             font=("TkDefaultFont", 12, "bold")
         ).pack(anchor="w")
 
         ttk.Label(
             self.release_tab,
-            text="Build either a clean public GitHub upload folder for developers or a friend-share zip that carries the app plus safe customizable data. Share zips exclude logs, cache, backups, console-copy runtime data, generated export folders, and personal launch paths.",
+            text=description,
             wraplength=1050,
         ).pack(anchor="w", pady=4)
 
         bar = FlowFrame(self.release_tab)
         bar.pack(fill="x", pady=6)
-        bar.add_button("Build GitHub Upload Folder", self.build_release_prep_ui)
+        if not public_mode:
+            bar.add_button("Build GitHub Upload Folder", self.build_release_prep_ui)
         bar.add_button("Build Friend Share Zip", self.build_share_bundle_ui)
-        bar.add_button("Inspect Latest Export", self.inspect_release_prep_ui)
+        if not public_mode:
+            bar.add_button("Inspect Latest Export", self.inspect_release_prep_ui)
+            bar.add_button("Clean Release Exports", self.clean_release_prep_ui)
         bar.add_button("Inspect Latest Share Zip", self.inspect_share_bundle_ui)
-        bar.add_button("Clean Release Exports", self.clean_release_prep_ui)
 
         self.release_status_var = tk.StringVar(value="Release Prep ready.")
         ttk.Label(self.release_tab, textvariable=self.release_status_var, wraplength=1050).pack(anchor="w", pady=4)
@@ -1515,6 +1557,7 @@ class StreamerBoardConsole:
                     board.pid or "",
                     status.get("pin_count", 0),
                     status.get("resource_mode", ""),
+                    status.get("pin_back", status.get("chroma_key", "")),
                     status.get("controller_title", board.controller_title),
                     status.get("output_title", board.output_title),
                 ))
@@ -1587,6 +1630,7 @@ class StreamerBoardConsole:
             menu.add_command(label="Rise Controller", command=lambda: send_board_command(board_id, "rise_to_top"))
             menu.add_command(label="Rise Pin-Out", command=lambda: send_board_command(board_id, "rise_output"))
             menu.add_command(label="Bring-in as Tab", command=lambda: self.open_board_tab(board_id))
+            menu.add_command(label="Pin Back (RGB)", command=lambda: self.board_pin_back_rgb_for(board_id))
             menu.add_command(label="Controller Always Top", command=lambda: send_board_command(board_id, "set_topmost", {"enabled": True}))
             menu.add_command(label="Controller Normal", command=lambda: send_board_command(board_id, "set_topmost", {"enabled": False}))
             menu.add_separator()
@@ -1596,6 +1640,139 @@ class StreamerBoardConsole:
         menu.add_separator()
         menu.add_command(label="Refresh", command=self.refresh_all)
         menu.tk_popup(event.x_root, event.y_root)
+
+    def clear_pin_back_force_flag(self):
+        try:
+            if hasattr(self, "board_pin_back_force_rgb_var"):
+                self.board_pin_back_force_rgb_var.set(False)
+        except Exception:
+            pass
+
+    def _board_pin_back_color(self, board_id: str) -> str:
+        status = read_board_status(board_id) if board_id else {}
+        return normalize_hex_color(status.get("pin_back", status.get("chroma_key", get_default_pin_back())), get_default_pin_back())
+
+    def _pin_back_target_for_board(self, board_id: str) -> dict:
+        return {
+            "kind": "board",
+            "board_id": board_id,
+            "label": self.board_label_for_id(board_id) if board_id else "Selected Pin Board",
+            "color": self._board_pin_back_color(board_id),
+        }
+
+    def _pin_back_target_all(self) -> dict:
+        return {
+            "kind": "all_boards",
+            "label": "All Running Pin Boards",
+            "color": get_default_pin_back(),
+        }
+
+    def board_pin_back_rgb(self):
+        board_id = self.selected_board_id()
+        if not board_id:
+            self.status_var.set("No Pin Board selected for Pin Back RGB.")
+            return
+        self.board_pin_back_rgb_for(board_id)
+
+    def board_pin_back_rgb_for(self, board_id: str):
+        if not board_id:
+            self.status_var.set("No Pin Board selected for Pin Back RGB.")
+            return
+        target = self._pin_back_target_for_board(board_id)
+        self.pin_back_rgb.request(target, target["color"], keep_open=bool(self.board_pin_back_force_rgb_var.get()))
+        self.status_var.set(f"Pin Back RGB selector aimed at {target['label']}.")
+
+    def all_pin_backs_rgb(self):
+        target = self._pin_back_target_all()
+        self.pin_back_rgb.request(target, target["color"], keep_open=bool(self.board_pin_back_force_rgb_var.get()))
+        self.status_var.set("Pin Backs RGB selector aimed at all running Pin Boards.")
+
+    def apply_pin_back_rgb_target(self, target: dict, color: str, close_after: bool = False):
+        color = normalize_hex_color(color, get_default_pin_back())
+        kind = str(target.get("kind", ""))
+        if kind == "board":
+            board_id = str(target.get("board_id", ""))
+            if not board_id:
+                self.status_var.set("Pin Back RGB target is missing a board id.")
+                return
+            send_board_command(board_id, "set_pin_back", {"color": color, "source": "console RGB selector"})
+            self.status_var.set(f"Pin Back {color} sent to {self.board_label_for_id(board_id)}.")
+        elif kind == "all_boards":
+            self.broadcast_pin_back_color(color, "console global RGB selector", update_default=True)
+        else:
+            set_default_pin_back(color, "console-default")
+            self.status_var.set(f"Default Pin Back set to {color}.")
+        self.root.after(700, self.refresh_all)
+
+    def broadcast_pin_back_color(self, color: str, source: str, update_default: bool = True):
+        color = normalize_hex_color(color, get_default_pin_back())
+        if update_default:
+            set_default_pin_back(color, source)
+        boards = scan_board_instances(include_stale=False)
+        count = 0
+        for board in boards:
+            send_board_command(board.instance_id, "set_pin_back", {"color": color, "source": source})
+            count += 1
+        self.status_var.set(f"Pin Back {color} sent to {count} running Pin Board(s).")
+        self.root.after(900, self.refresh_all)
+
+    def board_pin_back_palette_click(self, palette_name: str):
+        self.pin_back_cycle_detector.click(f"console-pin-back-{palette_name}")
+        color = get_c1() if palette_name == "c1" else get_c2()
+        if self.pin_back_rgb.is_open():
+            self.pin_back_rgb.set_color(color)
+            self.status_var.set(f"RGB selector loaded {palette_name.upper()} {color}.")
+            return
+        board_id = self.selected_board_id()
+        if not board_id:
+            self.status_var.set(f"No Pin Board selected for {palette_name.upper()} Pin Back.")
+            return
+        send_board_command(board_id, "set_pin_back", {"color": color, "source": palette_name.upper()})
+        self.status_var.set(f"{palette_name.upper()} Pin Back {color} sent to {self.board_label_for_id(board_id)}.")
+        self.root.after(700, self.refresh_all)
+
+    def board_pin_back_force_rgb_changed(self):
+        self.pin_back_cycle_detector.click("console-pin-back-force")
+        enabled = bool(self.board_pin_back_force_rgb_var.get())
+        self.pin_back_rgb.set_keep_open(enabled)
+        if enabled:
+            board_id = self.selected_board_id()
+            if board_id:
+                self.board_pin_back_rgb_for(board_id)
+            else:
+                self.all_pin_backs_rgb()
+        else:
+            self.status_var.set("Force RGB Selector off; selector closed without applying a color.")
+
+    def handle_pin_back_cycle_code(self, name: str, phases: tuple[int, ...], source: str):
+        if name == "SOS":
+            self.board_pin_back_force_rgb_var.set(False)
+            self.pin_back_rgb.close(cancel=False)
+            self.status_var.set("RGB selector SOS: closed.")
+        elif name == "Light-Tower":
+            self.board_pin_back_force_rgb_var.set(True)
+            board_id = self.selected_board_id()
+            if board_id:
+                self.board_pin_back_rgb_for(board_id)
+            else:
+                self.all_pin_backs_rgb()
+            self.status_var.set("RGB selector Light-Tower: forced on until pick.")
+        elif name == "Reset Colors":
+            set_default_pin_back(DEFAULT_C1, "c1-default")
+            self.broadcast_pin_back_color(DEFAULT_C1, "Reset Colors", update_default=True)
+        elif name == "Default C2":
+            set_default_pin_back(DEFAULT_C2, "c2-default")
+            self.broadcast_pin_back_color(DEFAULT_C2, "Default C2", update_default=True)
+        elif name == "Use C1":
+            self.broadcast_pin_back_color(get_c1(), "Use C1", update_default=True)
+        elif name == "Use C2":
+            self.broadcast_pin_back_color(get_c2(), "Use C2", update_default=True)
+        elif name == "Reboot 2":
+            reset_palette("c2")
+            self.broadcast_pin_back_color(DEFAULT_C2, "Reboot 2", update_default=True)
+        elif name == "Reboot End EP 2":
+            reset_palette("c2")
+            self.broadcast_pin_back_color(DEFAULT_C2, "Reboot End EP 2", update_default=True)
 
     def launch_pin_board(self):
         try:
@@ -1665,6 +1842,7 @@ class StreamerBoardConsole:
         menu.add_command(label="Rise Controller", command=lambda: send_board_command(iid, "rise_to_top"))
         menu.add_command(label="Rise Pin-Out", command=lambda: send_board_command(iid, "rise_output"))
         menu.add_command(label="Bring-in as Tab", command=lambda: self.open_board_tab(iid))
+        menu.add_command(label="Pin Back (RGB)", command=lambda: self.board_pin_back_rgb_for(iid))
         menu.add_command(label="Controller Always Top", command=lambda: send_board_command(iid, "set_topmost", {"enabled": True}))
         menu.add_command(label="Controller Normal", command=lambda: send_board_command(iid, "set_topmost", {"enabled": False}))
         menu.add_separator()
@@ -1713,6 +1891,7 @@ class StreamerBoardConsole:
         bar.pack(fill="x", pady=6)
         bar.add_button("Rise Controller", lambda: send_board_command(board_id, "rise_to_top"))
         bar.add_button("Rise Pin-Out", lambda: send_board_command(board_id, "rise_output"))
+        bar.add_button("Pin Back (RGB)", lambda: self.board_pin_back_rgb_for(board_id))
         bar.add_button("Always Top", lambda: send_board_command(board_id, "set_topmost", {"enabled": True}))
         bar.add_button("Normal", lambda: send_board_command(board_id, "set_topmost", {"enabled": False}))
         bar.add_button("Emergency Freeze", lambda: send_board_command(board_id, "emergency_freeze"))
