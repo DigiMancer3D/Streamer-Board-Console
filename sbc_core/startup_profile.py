@@ -81,7 +81,7 @@ def apply_startup_profile(apps: dict[str, Any]) -> dict[str, Any]:
             "validation": validation,
         }
 
-    result = apply_profile(str(cfg.get("profile")), apps, launch_apps=False)
+    result = apply_profile(str(cfg.get("profile")), apps, launch_apps=bool(cfg.get("launch_apps", False)))
     return {
         "ok": bool(result.get("ok")),
         "skipped": False,
