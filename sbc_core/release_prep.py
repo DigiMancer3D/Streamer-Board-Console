@@ -14,6 +14,8 @@ from .paths import APP_ROOT, USER_DATA
 
 EXPORT_DIR = APP_ROOT / "export"
 FORMAT_VERSION = "SBC_PUBLIC_RELEASE_EXPORT_V1"
+PUBLIC_RELEASE_MARKER = "SBC_PUBLIC_RELEASE_MANIFEST.json"
+FRIEND_SHARE_MARKER = "SBC_FRIEND_SHARE_MANIFEST.json"
 
 EXCLUDE_DIR_NAMES = {
     ".git",
@@ -85,6 +87,29 @@ def default_release_name() -> str:
 
 def default_release_dir() -> Path:
     return EXPORT_DIR / default_release_name()
+
+
+def is_public_distribution(root: str | Path | None = None) -> bool:
+    """Return True when this copy is a public/share distribution.
+
+    The active developer checkout keeps the GitHub upload builder visible.
+    Generated public/share copies include root marker manifests, so the GUI
+    hides the developer-only GitHub upload button there.
+
+    Overrides:
+    - SBC_PUBLIC_DISTRIBUTION=1 forces public/share mode.
+    - SBC_SHOW_GITHUB_BUILDER=1 forces the developer button visible.
+    """
+    show_override = os.environ.get("SBC_SHOW_GITHUB_BUILDER", "").strip().lower()
+    if show_override in {"1", "true", "yes", "on"}:
+        return False
+
+    public_override = os.environ.get("SBC_PUBLIC_DISTRIBUTION", "").strip().lower()
+    if public_override in {"1", "true", "yes", "on"}:
+        return True
+
+    folder = Path(root).expanduser() if root else APP_ROOT
+    return (folder / PUBLIC_RELEASE_MARKER).exists() or (folder / FRIEND_SHARE_MARKER).exists()
 
 
 def _is_excluded(path: Path, rel: Path) -> bool:
