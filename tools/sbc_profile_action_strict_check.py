@@ -70,10 +70,12 @@ try:
     passed = (
         result_normal.get("ok")
         and result_launch_flag.get("ok")
-        and g502v.calls == ["launch"]
+        and g502v.calls == []
         and soundcard.calls == []
         and g502v2.calls == ["launch"]
         and soundcard2.calls == []
+        and result_normal.get("run_actions") is False
+        and result_launch_flag.get("run_actions") is True
     )
 finally:
     delete_profile(name)
