@@ -1,75 +1,63 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import argparse
 import json
+import shutil
 import sys
+import time
 from pathlib import Path
 
 APP_ROOT = Path(__file__).resolve().parents[1]
 if str(APP_ROOT) not in sys.path:
     sys.path.insert(0, str(APP_ROOT))
 
-from sbc_core.release_prep import build_github_upload, inspect_release_folder, latest_release_folder, clean_release_exports, default_release_dir, build_share_bundle, inspect_share_bundle, latest_share_bundle, default_share_zip_path
+from sbc_core.paths import USER_DATA
+from sbc_core.release_prep import build_github_upload, inspect_release_folder, build_share_bundle, inspect_share_bundle
 
+out = USER_DATA / "cache" / f"sbc_release_prep_selftest_{int(time.time())}"
+try:
+    build = build_github_upload(out)
+    inspect = inspect_release_folder(out)
+    share_zip = USER_DATA / "cache" / f"sbc_share_bundle_selftest_{int(time.time())}.zip"
+    share_build = build_share_bundle(share_zip)
+    share_inspect = inspect_share_bundle(share_zip)
+    checks = {
+        "build_ok": bool(build.get("ok")),
+        "inspect_ok": bool(inspect.get("ok")),
+        "manifest_exists": (out / "SBC_PUBLIC_RELEASE_MANIFEST.json").exists(),
+        "checklist_exists": (out / "PUBLIC_RELEASE_CHECKLIST.md").exists(),
+        "github_notes_exists": (out / "GITHUB_UPLOAD_NOTES.md").exists(),
+        "original_app_notes_exists": (out / "UPDATE_ORIGINAL_APP_REPOS.md").exists(),
+        "external_update_notes_exist": (out / "external_app_updates" / "soundcard" / "SOUNDCARD_SBC_UPDATE.md").exists(),
+        "release_verify_exists": (out / "tools" / "release_verify.sh").exists(),
+        "share_build_ok": bool(share_build.get("ok")),
+        "share_inspect_ok": bool(share_inspect.get("ok")),
+        "friend_share_manifest_exists": share_inspect.get("manifest", {}).get("format") == "SBC_FRIEND_SHARE_BUNDLE_V1",
+        "friend_share_no_private_markers": not share_inspect.get("private_marker_hits"),
+        "no_runtime_console_copies": not (out / "user_data" / "console_copies").exists(),
+        "no_runtime_console_instances": not (out / "user_data" / "console_instances").exists(),
+        "no_runtime_logs": not (out / "user_data" / "logs").exists(),
+        "no_export_recursion": not (out / "export").exists(),
+    }
+    report = {
+        "tool": "sbc_release_prep_check",
+        "passed": all(checks.values()),
+        "checks": checks,
+        "release_dir": str(out),
+        "copied_count": build.get("copied_count", 0),
+        "inspect_required_missing": [k for k, v in inspect.get("required", {}).items() if not v],
+        "inspect_forbidden_present": inspect.get("forbidden_present", {}),
+        "share_private_marker_hits": share_inspect.get("private_marker_hits", []),
+        "share_forbidden_present": share_inspect.get("forbidden_present", []),
+    }
+finally:
+    if out.exists():
+        shutil.rmtree(out)
+    try:
+        if 'share_zip' in globals() and share_zip.exists():
+            share_zip.unlink()
+    except Exception:
+        pass
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Build or inspect Streamer Board & Console GitHub exports and friend-share bundles.")
-    parser.add_argument("--build", nargs="?", const="", help="Build GitHub upload folder. Optional output folder path.")
-    parser.add_argument("--share", nargs="?", const="", help="Build friend-share zip. Optional output zip path.")
-    parser.add_argument("--inspect-share", nargs="?", const="", help="Inspect friend-share zip. Optional zip path; defaults to latest share zip.")
-    parser.add_argument("--inspect", nargs="?", const="", help="Inspect release folder. Optional folder path; defaults to latest/default export.")
-    parser.add_argument("--clean", action="store_true", help="Remove generated GitHub upload export folders.")
-    parser.add_argument("--default-path", action="store_true", help="Print the default GitHub upload folder path.")
-    parser.add_argument("--default-share-path", action="store_true", help="Print the default friend-share zip path.")
-    args = parser.parse_args()
-
-    if args.default_path:
-        print(json.dumps({"tool": "sbc_release_prep", "default_release_dir": str(default_release_dir())}, indent=2, sort_keys=True))
-        return 0
-
-    if args.default_share_path:
-        print(json.dumps({"tool": "sbc_release_prep", "default_share_zip": str(default_share_zip_path())}, indent=2, sort_keys=True))
-        return 0
-
-    if args.clean:
-        print(json.dumps({"tool": "sbc_release_prep", "clean_result": clean_release_exports()}, indent=2, sort_keys=True))
-        return 0
-
-    if args.build is not None:
-        output = args.build or None
-        result = build_github_upload(output)
-        print(json.dumps({"tool": "sbc_release_prep", "build_result": result}, indent=2, sort_keys=True))
-        return 0 if result.get("ok") else 1
-
-    if args.share is not None:
-        output = args.share or None
-        result = build_share_bundle(output)
-        print(json.dumps({"tool": "sbc_release_prep", "share_result": result}, indent=2, sort_keys=True))
-        return 0 if result.get("ok") else 1
-
-    if args.inspect_share is not None:
-        path = args.inspect_share or latest_share_bundle()
-        result = inspect_share_bundle(path)
-        print(json.dumps({"tool": "sbc_release_prep", "inspect_share_result": result}, indent=2, sort_keys=True))
-        return 0 if result.get("ok") else 1
-
-    if args.inspect is not None:
-        path = args.inspect or latest_release_folder()
-        result = inspect_release_folder(path)
-        print(json.dumps({"tool": "sbc_release_prep", "inspect_result": result}, indent=2, sort_keys=True))
-        return 0 if result.get("ok") else 1
-
-    # Friendly default: inspect latest if present, otherwise build default.
-    latest = latest_release_folder()
-    if latest.exists():
-        result = inspect_release_folder(latest)
-        print(json.dumps({"tool": "sbc_release_prep", "inspect_result": result}, indent=2, sort_keys=True))
-        return 0 if result.get("ok") else 1
-
-    result = build_github_upload()
-    print(json.dumps({"tool": "sbc_release_prep", "build_result": result}, indent=2, sort_keys=True))
-    return 0 if result.get("ok") else 1
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+print(json.dumps(report, indent=2, sort_keys=True))
+raise SystemExit(0 if report["passed"] else 1)
