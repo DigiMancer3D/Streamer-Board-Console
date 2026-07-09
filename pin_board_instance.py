@@ -14,6 +14,18 @@ from sbc_core.storage import read_json, write_json
 from sbc_core.paths import BOARD_DIR
 from sbc_core.board_registry import status_file, command_file
 from sbc_core.ui_wrap import FlowFrame
+from sbc_core.pin_back_colors import (
+    DEFAULT_C1,
+    DEFAULT_C2,
+    CycleCodeDetector,
+    RGBSelectorManager,
+    get_c1,
+    get_c2,
+    get_default_pin_back,
+    normalize_hex_color,
+    reset_palette,
+    set_default_pin_back,
+)
 
 ANIMATION_PRESETS = ["pulse", "float", "slow-spin", "shake", "fade-in-out", "slide-left-right"]
 
@@ -23,7 +35,7 @@ class PinBoardApp:
         self.capture_w = 1920
         self.capture_h = 1080
         self.output_scale = 0.5
-        self.chroma_key = "#00ff00"
+        self.chroma_key = get_default_pin_back()
         self.resource_mode = "Static"
         self.anim_fps = 0
         self.locked = False
@@ -46,6 +58,14 @@ class PinBoardApp:
         self.root.geometry("1120x760+180+120")
         self.root.minsize(720, 520)
         self.root.protocol("WM_DELETE_WINDOW", self.close_instance)
+
+        self.pin_back_rgb = RGBSelectorManager(
+            self.root,
+            self.apply_pin_back_rgb_target,
+            status_callback=self.set_pin_back_status,
+            force_close_callback=self.clear_pin_back_force_flag,
+        )
+        self.pin_back_cycle_detector = CycleCodeDetector(self.root, self.handle_pin_back_cycle_code)
 
         self.output = tk.Toplevel(self.root)
         self.output.title(f"Streamer Board - Output - {self.instance_id}")
@@ -92,6 +112,15 @@ class PinBoardApp:
         top.add_button("Emergency Freeze", self.emergency_freeze)
         top.add_button("Rise Controller", lambda: self.rise_to_top(short=True))
         top.add_button("Rise Pin-Out", self.rise_output)
+        top.add_button("Pin Back (RGB)", self.open_pin_back_rgb)
+
+        pin_back_group = top.add_group()
+        self.pin_back_c1_var = tk.BooleanVar(value=False)
+        self.pin_back_c2_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(pin_back_group, text="C1", variable=self.pin_back_c1_var, command=lambda: self.pin_back_palette_click("c1")).pack(side="left", padx=2)
+        ttk.Checkbutton(pin_back_group, text="C2", variable=self.pin_back_c2_var, command=lambda: self.pin_back_palette_click("c2")).pack(side="left", padx=2)
+        self.pin_back_force_rgb_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(pin_back_group, text="Force RGB Selector", variable=self.pin_back_force_rgb_var, command=self.pin_back_force_rgb_changed).pack(side="left", padx=6)
 
         topmost_group = top.add_group()
         self.topmost_var = tk.BooleanVar(value=self.controller_topmost)
@@ -160,6 +189,88 @@ class PinBoardApp:
             var = tk.BooleanVar(value=False)
             self.anim_vars[name] = var
             ttk.Checkbutton(anim_group, text=name, variable=var, command=self.apply_controls).pack(side="left", padx=1)
+
+    def set_pin_back_status(self, message: str):
+        try:
+            self.root.title(f"Streamer Board - Controller - {self.instance_id} | {message}")
+            self.root.after(2400, lambda: self.root.title(f"Streamer Board - Controller - {self.instance_id}"))
+        except Exception:
+            pass
+
+    def clear_pin_back_force_flag(self):
+        try:
+            if hasattr(self, "pin_back_force_rgb_var"):
+                self.pin_back_force_rgb_var.set(False)
+        except Exception:
+            pass
+
+    def set_pin_back_color(self, color: str, source: str = "custom"):
+        color = normalize_hex_color(color, DEFAULT_C1)
+        self.chroma_key = color
+        try:
+            self.output_canvas.configure(bg=self.chroma_key)
+        except Exception:
+            pass
+        self.redraw_all()
+        self.write_status()
+        self.set_pin_back_status(f"Pin Back {color} ({source})")
+
+    def open_pin_back_rgb(self):
+        target = {
+            "kind": "pin_board_instance",
+            "instance_id": self.instance_id,
+            "label": f"Pin Board {self.instance_id}",
+            "color": self.chroma_key,
+        }
+        self.pin_back_rgb.request(target, self.chroma_key, keep_open=bool(self.pin_back_force_rgb_var.get()))
+
+    def apply_pin_back_rgb_target(self, target: dict, color: str, close_after: bool = False):
+        self.set_pin_back_color(color, "RGB selector")
+
+    def pin_back_palette_click(self, palette_name: str):
+        self.pin_back_cycle_detector.click(f"pin-back-{palette_name}")
+        color = get_c1() if palette_name == "c1" else get_c2()
+        if self.pin_back_rgb.is_open():
+            self.pin_back_rgb.set_color(color)
+            return
+        self.set_pin_back_color(color, palette_name.upper())
+
+    def pin_back_force_rgb_changed(self):
+        self.pin_back_cycle_detector.click("pin-back-force")
+        enabled = bool(self.pin_back_force_rgb_var.get())
+        self.pin_back_rgb.set_keep_open(enabled)
+        if enabled and not self.pin_back_rgb.target:
+            self.open_pin_back_rgb()
+
+    def handle_pin_back_cycle_code(self, name: str, phases: tuple[int, ...], source: str):
+        c1 = get_c1()
+        c2 = get_c2()
+        if name == "SOS":
+            self.pin_back_force_rgb_var.set(False)
+            self.pin_back_rgb.close(cancel=False)
+            self.set_pin_back_status("RGB selector SOS: closed.")
+        elif name == "Light-Tower":
+            self.pin_back_force_rgb_var.set(True)
+            self.open_pin_back_rgb()
+            self.set_pin_back_status("RGB selector Light-Tower: forced on until pick.")
+        elif name == "Reset Colors":
+            set_default_pin_back(DEFAULT_C1, "c1-default")
+            self.set_pin_back_color(DEFAULT_C1, "Reset Colors")
+        elif name == "Default C2":
+            set_default_pin_back(DEFAULT_C2, "c2-default")
+            self.set_pin_back_color(DEFAULT_C2, "Default C2")
+        elif name == "Use C1":
+            set_default_pin_back(c1, "c1")
+            self.set_pin_back_color(c1, "Use C1")
+        elif name == "Use C2":
+            set_default_pin_back(c2, "c2")
+            self.set_pin_back_color(c2, "Use C2")
+        elif name == "Reboot 2":
+            reset_palette("c2")
+            self.set_pin_back_color(DEFAULT_C2, "Reboot 2")
+        elif name == "Reboot End EP 2":
+            reset_palette("c2")
+            self.set_pin_back_color(DEFAULT_C2, "Reboot End EP 2")
 
     def toggle_topmost(self):
         self.controller_topmost = bool(self.topmost_var.get())
@@ -497,12 +608,13 @@ class PinBoardApp:
 
     def board_payload(self):
         return {
-            "version": "0.1.3-mvp",
+            "version": "0.1.4-mvp",
             "capture": {
                 "width": self.capture_w,
                 "height": self.capture_h,
                 "output_scale": self.output_scale,
-                "chroma_key": self.chroma_key
+                "chroma_key": self.chroma_key,
+                "pin_back": self.chroma_key
             },
             "resource_mode": self.resource_mode,
             "pins": [pin.to_dict() for pin in self.pins]
@@ -536,7 +648,7 @@ class PinBoardApp:
         self.capture_w = int(cap.get("width", self.capture_w))
         self.capture_h = int(cap.get("height", self.capture_h))
         self.output_scale = float(cap.get("output_scale", self.output_scale))
-        self.chroma_key = cap.get("chroma_key", self.chroma_key)
+        self.chroma_key = normalize_hex_color(cap.get("pin_back", cap.get("chroma_key", self.chroma_key)), get_default_pin_back())
         self.resource_mode = data.get("resource_mode", "Static")
         self.resource_var.set(self.resource_mode)
         self.set_resource_mode(self.resource_mode)
@@ -565,6 +677,8 @@ class PinBoardApp:
             "board_path": str(self.board_path or ""),
             "heartbeat": time.time(),
             "resource_mode": self.resource_mode,
+            "pin_back": self.chroma_key,
+            "chroma_key": self.chroma_key,
             "locked": self.locked,
             "controller_topmost": self.controller_topmost,
             "output_topmost": self.output_topmost,
@@ -616,6 +730,10 @@ class PinBoardApp:
         elif command == "nudge":
             self.select_pin_id(str(payload.get("pin_id", self.selected_id or "")))
             self.nudge(float(payload.get("dx", 0)), float(payload.get("dy", 0)))
+        elif command == "set_pin_back":
+            self.set_pin_back_color(str(payload.get("color", self.chroma_key)), str(payload.get("source", "console")))
+        elif command == "pin_back_helper":
+            self.handle_pin_back_cycle_code(str(payload.get("name", "")), tuple(payload.get("phases", [])), "console-command")
         elif command == "close":
             self.close_instance()
 
