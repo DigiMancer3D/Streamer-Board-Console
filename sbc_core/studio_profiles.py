@@ -219,7 +219,26 @@ def apply_app_action(app: Any, action: str) -> str:
     except Exception as exc:
         return f"{action_label(action)} failed for {getattr(app, 'display_name', 'app')}: {exc}"
 
-def apply_profile(profile_name: str, apps: dict[str, Any], launch_apps: bool = False) -> dict[str, Any]:
+def apply_profile(
+    profile_name: str,
+    apps: dict[str, Any],
+    launch_apps: bool = False,
+    *,
+    run_actions: bool | None = None,
+) -> dict[str, Any]:
+    """Apply a saved Studio Profile.
+
+    Compatibility note:
+    - Older callers used the name ``launch_apps`` for what the UI now calls
+      "Run Actions".  Keep accepting it, but make the behavior explicit.
+    - When run_actions is False, this only writes control/hotkey files.
+    - When run_actions is True, it also runs each saved per-app action.
+    """
+    if run_actions is None:
+        run_actions = bool(launch_apps)
+    else:
+        run_actions = bool(run_actions)
+
     profiles = load_profiles()
     profile = profiles.get(profile_name)
     if not profile:
@@ -238,15 +257,13 @@ def apply_profile(profile_name: str, apps: dict[str, Any], launch_apps: bool = F
         hotkeys_enabled = bool(settings.get("hotkeys_enabled", True))
         mode = str(settings.get("mode", "local"))
         profile_action = normalize_action(settings.get("action", "keep"))
-        # v0.3.2: per-app action is strict. Apply + Run Actions must not turn Keep into Launch.
-
-        effective_action = profile_action
+        effective_action = profile_action if run_actions else "keep"
 
         hotkey_map = settings.get("hotkey_map") if isinstance(settings.get("hotkey_map"), dict) else {}
         payload = build_control_payload(app, hotkeys_enabled=hotkeys_enabled, hotkey_map=hotkey_map, mode=mode)
         paths = write_app_control(app, payload)
 
-        action_message = apply_app_action(app, effective_action)
+        action_message = apply_app_action(app, effective_action) if run_actions else ""
 
         applied.append({
             "app_id": app_id,
@@ -255,21 +272,31 @@ def apply_profile(profile_name: str, apps: dict[str, Any], launch_apps: bool = F
             "mode": mode,
             "action": profile_action,
             "effective_action": effective_action,
+            "run_actions": run_actions,
             "action_message": action_message,
             # Backward-compatible key used by earlier GUI/profile status code.
             "launch_message": action_message if effective_action == "launch" else "",
             "written": [str(p) for p in paths],
         })
 
+    USER_DATA.mkdir(parents=True, exist_ok=True)
     ACTIVE_PROFILE_PATH.write_text(json.dumps({
         "active_profile": profile_name,
         "profile": profile,
         "applied": applied,
         "missing": missing,
-        "launch_apps": launch_apps,
+        "launch_apps": run_actions,
+        "run_actions": run_actions,
     }, indent=2, sort_keys=True), encoding="utf-8")
 
-    return {"ok": True, "profile": profile_name, "applied": applied, "missing": missing, "launch_apps": launch_apps}
+    return {
+        "ok": True,
+        "profile": profile_name,
+        "applied": applied,
+        "missing": missing,
+        "launch_apps": run_actions,
+        "run_actions": run_actions,
+    }
 
 def active_profile_name() -> str:
     try:
