@@ -16,6 +16,7 @@ INCLUDE_DIRS = [
     "imported_images",
     "app_controls",
     "console_copies",
+    "user_dump",
 ]
 
 INCLUDE_FILES = [
