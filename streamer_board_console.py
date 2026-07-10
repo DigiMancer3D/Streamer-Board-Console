@@ -19,6 +19,7 @@ from sbc_core.board_registry import (
     kill_board_with_mem,
 )
 from sbc_core.ui_wrap import FlowFrame
+from sbc_core.paths import BOARD_DIR
 from sbc_core.tree_utils import tree_select_under_pointer, remember_tree_selection, restore_tree_selection
 from sbc_core.adapter_control import default_hotkey_map, write_default_control, native_adapter_status
 from sbc_core.studio_profiles import ensure_default_profiles, load_profiles, apply_profile, profile_summary, active_profile_name, save_profile, delete_profile, is_default_profile, profile_app_settings, PROFILE_ACTIONS, normalize_action, action_label, expand_profile_for_apps, default_settings_for_app
@@ -52,6 +53,7 @@ class StreamerBoardConsole:
         self.apps = load_apps()
         self.board_instances = []
         self.board_control_tabs: dict[str, ttk.Frame] = {}
+        self.board_breakout_windows: dict[str, tk.Toplevel] = {}
         self.root = tk.Tk()
         self.instance_name = os.environ.get("SBC_INSTANCE_NAME", "").strip()
         self.window_title = "Streamer Board & Console" if not self.instance_name else f"Streamer Board & Console — {self.instance_name}"
@@ -120,6 +122,19 @@ class StreamerBoardConsole:
 
     def shutdown(self):
         self._shutdown_requested = True
+        # A controller represented by an SBC tab/breakout is withdrawn in its
+        # own Pin Board process. Restore it before the console disappears so a
+        # normal SBC shutdown never strands a board with only its output open.
+        hidden_ids = set(self.board_control_tabs) | set(self.board_breakout_windows)
+        for board_id in hidden_ids:
+            try:
+                send_board_command(
+                    board_id,
+                    "set_controller_visible",
+                    {"visible": True, "rise": False},
+                )
+            except Exception:
+                pass
         try:
             self.root.quit()
         except Exception:
@@ -495,6 +510,7 @@ class StreamerBoardConsole:
         bar.add_button("Rise Controller", self.board_rise_to_top)
         bar.add_button("Rise Pin-Out", self.board_rise_output)
         bar.add_button("Bring-in as Tab", self.bring_board_as_tab)
+        bar.add_button("Swap State", self.board_swap_state)
         bar.add_button("Controller Always Top", lambda: self.board_set_topmost(True))
         bar.add_button("Controller Normal", lambda: self.board_set_topmost(False))
         bar.add_button("Emergency Freeze", self.board_freeze)
@@ -503,8 +519,8 @@ class StreamerBoardConsole:
 
         self.boards_tree = self._tree(
             self.boards_tab,
-            ("id", "state", "pid", "pins", "mode", "pin_back", "controller", "output"),
-            ("ID", "State", "PID", "Pins", "Mode", "Pin Back", "Controller Window", "Output Window"),
+            ("id", "slot", "capture", "state", "pid", "pins", "mode", "pin_back", "controller", "output"),
+            ("ID", "Slot", "OBS Capture Key", "State", "PID", "Pins", "Mode", "Pin Back", "Controller Window", "Output Window"),
             height=10,
         )
         self.boards_tree.bind("<<TreeviewSelect>>", lambda _e: self.remember_board_selection())
@@ -1553,6 +1569,8 @@ class StreamerBoardConsole:
                 status = read_board_status(board.instance_id)
                 self.boards_tree.insert("", "end", iid=board.instance_id, values=(
                     board.instance_id,
+                    f"{int(status.get('slot', board.slot) or 0):02d}" if int(status.get("slot", board.slot) or 0) > 0 else "",
+                    status.get("capture_key", board.capture_key),
                     "Running" if board.running else "Stale/Closed",
                     board.pid or "",
                     status.get("pin_count", 0),
@@ -1627,9 +1645,10 @@ class StreamerBoardConsole:
                 menu.add_command(label="Hotkeys ON", command=lambda: self.write_hotkey_control(app, True))
         elif key.startswith("board:"):
             board_id = key.split(":", 1)[1]
-            menu.add_command(label="Rise Controller", command=lambda: send_board_command(board_id, "rise_to_top"))
+            menu.add_command(label="Rise Controller", command=lambda: self.rise_board_controller_for(board_id))
             menu.add_command(label="Rise Pin-Out", command=lambda: send_board_command(board_id, "rise_output"))
             menu.add_command(label="Bring-in as Tab", command=lambda: self.open_board_tab(board_id))
+            menu.add_command(label="Swap State", command=lambda: self.board_swap_state_for(board_id))
             menu.add_command(label="Pin Back (RGB)", command=lambda: self.board_pin_back_rgb_for(board_id))
             menu.add_command(label="Controller Always Top", command=lambda: send_board_command(board_id, "set_topmost", {"enabled": True}))
             menu.add_command(label="Controller Normal", command=lambda: send_board_command(board_id, "set_topmost", {"enabled": False}))
@@ -1787,6 +1806,30 @@ class StreamerBoardConsole:
         if not board_id:
             self.status_var.set("No Pin Board selected.")
             return
+        self.rise_board_controller_for(board_id)
+
+    def rise_board_controller_for(self, board_id: str):
+        """Rise the active controller representation without duplicating it."""
+        frame = self.board_control_tabs.get(board_id)
+        if frame is not None:
+            try:
+                self.tabs.select(frame)
+            except Exception:
+                pass
+            self.status_var.set(f"Selected controller tab for {board_id}")
+            return
+
+        win = self.board_breakout_windows.get(board_id)
+        if win is not None:
+            try:
+                win.deiconify()
+                win.lift()
+                win.focus_force()
+                self.status_var.set(f"Raised breakout controller for {board_id}")
+                return
+            except Exception:
+                self.board_breakout_windows.pop(board_id, None)
+
         send_board_command(board_id, "rise_to_top")
         self.status_var.set(f"Rise Controller sent to {board_id}")
 
@@ -1814,6 +1857,25 @@ class StreamerBoardConsole:
         send_board_command(board_id, "emergency_freeze")
         self.status_var.set(f"Emergency Freeze sent to {board_id}")
 
+    def board_swap_state(self):
+        board_id = self.selected_board_id()
+        if not board_id:
+            self.status_var.set("No Pin Board selected.")
+            return
+        self.board_swap_state_for(board_id)
+
+    def board_swap_state_for(self, board_id: str):
+        path = filedialog.askopenfilename(
+            title="Swap Pin Board state without changing its OBS identity",
+            initialdir=BOARD_DIR,
+            filetypes=[("Streamer Board", "*.sboard"), ("JSON", "*.json"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+        send_board_command(board_id, "swap_state", {"path": path})
+        self.status_var.set(f"Swap State sent to {self.board_label_for_id(board_id)}: {os.path.basename(path)}")
+        self.root.after(700, self.refresh_all)
+
     def board_kill_with_mem(self):
         board_id = self.selected_board_id()
         if not board_id:
@@ -1839,9 +1901,10 @@ class StreamerBoardConsole:
         self.selected_board_var.set(self.board_label_for_id(iid))
 
         menu = tk.Menu(self.root, tearoff=0)
-        menu.add_command(label="Rise Controller", command=lambda: send_board_command(iid, "rise_to_top"))
+        menu.add_command(label="Rise Controller", command=lambda: self.rise_board_controller_for(iid))
         menu.add_command(label="Rise Pin-Out", command=lambda: send_board_command(iid, "rise_output"))
         menu.add_command(label="Bring-in as Tab", command=lambda: self.open_board_tab(iid))
+        menu.add_command(label="Swap State", command=lambda: self.board_swap_state_for(iid))
         menu.add_command(label="Pin Back (RGB)", command=lambda: self.board_pin_back_rgb_for(iid))
         menu.add_command(label="Controller Always Top", command=lambda: send_board_command(iid, "set_topmost", {"enabled": True}))
         menu.add_command(label="Controller Normal", command=lambda: send_board_command(iid, "set_topmost", {"enabled": False}))
@@ -1867,21 +1930,148 @@ class StreamerBoardConsole:
             return
         self.open_board_tab(board_id)
 
+    def board_surface_kind(self, board_id: str) -> str:
+        if board_id in self.board_control_tabs:
+            return "tab"
+        if board_id in self.board_breakout_windows:
+            return "breakout"
+        return ""
+
+    def board_remote_label(self, board_id: str) -> str:
+        status = read_board_status(board_id)
+        slot = int(status.get("slot", 0) or 0)
+        capture_key = str(status.get("capture_key", ""))
+        if slot > 0:
+            return f"PB {slot:02d}"
+        if capture_key:
+            return capture_key
+        return f"Board {board_id[:4]}"
+
     def open_board_tab(self, board_id: str):
         if board_id in self.board_control_tabs:
-            self.tabs.select(self.board_control_tabs[board_id])
+            frame = self.board_control_tabs[board_id]
+            try:
+                self.tabs.select(frame)
+            except Exception:
+                pass
+            # Reassert the invariant in case the original controller was raised
+            # by an older build or an external window-manager action.
+            send_board_command(board_id, "set_controller_visible", {"visible": False})
             self.status_var.set(f"Board tab already open for {board_id}")
             return
 
-        frame = ttk.Frame(self.tabs, padding=8)
-        self.board_control_tabs[board_id] = frame
-        self.tabs.add(frame, text=f"Board {board_id[:4]}")
-        self.build_board_remote_tab(frame, board_id)
-        self.tabs.select(frame)
-        self.status_var.set(f"Remote board control tab opened for {board_id}")
+        if board_id in self.board_breakout_windows:
+            self.close_board_breakout(board_id, quiet=True, restore_controller=False)
 
-    def build_board_remote_tab(self, frame: ttk.Frame, board_id: str):
-        header_var = tk.StringVar(value=f"Remote controls for Pin Board {board_id}")
+        frame = ttk.Frame(self.tabs, padding=8)
+        frame._sbc_remote_active = True
+        self.board_control_tabs[board_id] = frame
+        self.tabs.add(frame, text=self.board_remote_label(board_id))
+        self.build_board_remote_surface(frame, board_id, host_kind="tab")
+        self.tabs.select(frame)
+        send_board_command(board_id, "set_controller_visible", {"visible": False})
+        self.status_var.set(f"Controller moved into SBC tab for {board_id}")
+
+    def remove_board_tab(
+        self,
+        board_id: str,
+        quiet: bool = False,
+        restore_controller: bool = True,
+    ):
+        frame = self.board_control_tabs.pop(board_id, None)
+        if frame is None:
+            if not quiet:
+                self.status_var.set(f"No controller tab is open for {board_id}")
+            return
+        try:
+            frame._sbc_remote_active = False
+        except Exception:
+            pass
+        try:
+            self.tabs.forget(frame)
+        except Exception:
+            pass
+        try:
+            frame.destroy()
+        except Exception:
+            pass
+        if restore_controller:
+            send_board_command(
+                board_id,
+                "set_controller_visible",
+                {"visible": True, "rise": not quiet},
+            )
+        if not quiet:
+            self.status_var.set(f"Removed tab and restored controller window for {board_id}")
+
+    def breakout_board_tab(self, board_id: str):
+        self.remove_board_tab(board_id, quiet=True, restore_controller=False)
+        self.open_board_breakout(board_id)
+
+    def open_board_breakout(self, board_id: str):
+        existing = self.board_breakout_windows.get(board_id)
+        if existing is not None:
+            try:
+                existing.deiconify()
+                existing.lift()
+                existing.focus_force()
+                send_board_command(board_id, "set_controller_visible", {"visible": False})
+                return
+            except Exception:
+                self.board_breakout_windows.pop(board_id, None)
+
+        if board_id in self.board_control_tabs:
+            self.remove_board_tab(board_id, quiet=True, restore_controller=False)
+
+        win = tk.Toplevel(self.root)
+        win._sbc_remote_active = True
+        win.title(f"SBC Remote Controls — {self.board_remote_label(board_id)}")
+        win.geometry("980x680+140+140")
+        win.minsize(720, 500)
+        win.protocol("WM_DELETE_WINDOW", lambda bid=board_id: self.close_board_breakout(bid))
+        self.board_breakout_windows[board_id] = win
+
+        body = ttk.Frame(win, padding=8)
+        body.pack(fill="both", expand=True)
+        body._sbc_remote_active = True
+        win._sbc_remote_body = body
+        self.build_board_remote_surface(body, board_id, host_kind="breakout")
+        send_board_command(board_id, "set_controller_visible", {"visible": False})
+        self.status_var.set(f"Controller tab broken out for {board_id}")
+
+    def close_board_breakout(
+        self,
+        board_id: str,
+        quiet: bool = False,
+        restore_controller: bool = True,
+    ):
+        win = self.board_breakout_windows.pop(board_id, None)
+        if win is None:
+            if not quiet:
+                self.status_var.set(f"No breakout controller is open for {board_id}")
+            return
+        try:
+            win._sbc_remote_active = False
+            body = getattr(win, "_sbc_remote_body", None)
+            if body is not None:
+                body._sbc_remote_active = False
+        except Exception:
+            pass
+        try:
+            win.destroy()
+        except Exception:
+            pass
+        if restore_controller:
+            send_board_command(
+                board_id,
+                "set_controller_visible",
+                {"visible": True, "rise": not quiet},
+            )
+        if not quiet:
+            self.status_var.set(f"Closed breakout and restored controller window for {board_id}")
+
+    def build_board_remote_surface(self, frame, board_id: str, host_kind: str = "tab"):
+        header_var = tk.StringVar(value=f"Remote controls for {self.board_remote_label(board_id)}")
         ttk.Label(frame, textvariable=header_var, font=("TkDefaultFont", 13, "bold")).pack(anchor="w")
 
         info_var = tk.StringVar(value="")
@@ -1889,7 +2079,14 @@ class StreamerBoardConsole:
 
         bar = FlowFrame(frame)
         bar.pack(fill="x", pady=6)
-        bar.add_button("Rise Controller", lambda: send_board_command(board_id, "rise_to_top"))
+        if host_kind == "tab":
+            bar.add_button("Tab Breakout", lambda: self.breakout_board_tab(board_id))
+            bar.add_button("Remove Tab", lambda: self.remove_board_tab(board_id))
+        else:
+            bar.add_button("Bring-in as Tab", lambda: self.open_board_tab(board_id))
+            bar.add_button("Close Breakout", lambda: self.close_board_breakout(board_id))
+        bar.add_button("Swap State", lambda: self.board_swap_state_for(board_id))
+        bar.add_button("Rise Controller", lambda: self.rise_board_controller_for(board_id))
         bar.add_button("Rise Pin-Out", lambda: send_board_command(board_id, "rise_output"))
         bar.add_button("Pin Back (RGB)", lambda: self.board_pin_back_rgb_for(board_id))
         bar.add_button("Always Top", lambda: send_board_command(board_id, "set_topmost", {"enabled": True}))
@@ -1898,6 +2095,8 @@ class StreamerBoardConsole:
         bar.add_button("Kill w/Mem", lambda: self.context_kill_board_with_mem(board_id))
         bar.add_button("Lock", lambda: send_board_command(board_id, "toggle_lock", {"locked": True}))
         bar.add_button("Unlock", lambda: send_board_command(board_id, "toggle_lock", {"locked": False}))
+        bar.add_button("Hide All Stickers", lambda: send_board_command(board_id, "set_all_pin_visibility", {"visible": False}))
+        bar.add_button("Show All Stickers", lambda: send_board_command(board_id, "set_all_pin_visibility", {"visible": True}))
 
         mode_group = bar.add_group("Resource Mode:")
         mode_var = tk.StringVar(value="Static")
@@ -1910,14 +2109,29 @@ class StreamerBoardConsole:
         pin_combo = ttk.Combobox(pin_group, textvariable=pin_var, values=[], width=32, state="readonly")
         pin_combo.pack(side="left")
 
-        nudge = ttk.LabelFrame(frame, text="Selected Pin Quick Nudge", padding=8)
-        nudge.pack(anchor="w", pady=8)
+        hide_group = bar.add_group()
+        hide_pin_var = tk.BooleanVar(value=False)
 
         def selected_pin_id():
             value = pin_var.get()
             if "[" in value and "]" in value:
                 return value.rsplit("[", 1)[1].rstrip("]")
             return ""
+
+        def send_selected_visibility():
+            pin_id = selected_pin_id()
+            if pin_id:
+                send_board_command(board_id, "set_pin_visibility", {"pin_id": pin_id, "visible": not bool(hide_pin_var.get())})
+
+        ttk.Checkbutton(
+            hide_group,
+            text="Hide Sticker",
+            variable=hide_pin_var,
+            command=send_selected_visibility,
+        ).pack(side="left")
+
+        nudge = ttk.LabelFrame(frame, text="Selected Pin Quick Nudge", padding=8)
+        nudge.pack(anchor="w", pady=8)
 
         def send_nudge(dx, dy):
             pin_id = selected_pin_id()
@@ -1933,20 +2147,43 @@ class StreamerBoardConsole:
 
         pins_tree = self._tree(
             frame,
-            ("id", "name", "x", "y", "z"),
-            ("Pin ID", "Name", "X", "Y", "Z"),
+            ("id", "name", "visible", "x", "y", "z"),
+            ("Pin ID", "Name", "Visible", "X", "Y", "Z"),
             height=10,
         )
         pins_tree.bind("<Button-3>", lambda e: self.remote_pin_context_menu(e, pins_tree, board_id, pin_var))
         pins_tree.bind("<Button-1>", lambda e: "break" if not pins_tree.identify_row(e.y) else None)
 
+        def sync_hide_checkbox(pins):
+            pin_id = selected_pin_id()
+            for pin in pins:
+                if str(pin.get("id", "")) == pin_id:
+                    hide_pin_var.set(not bool(pin.get("visible", True)))
+                    return
+            hide_pin_var.set(False)
+
+        pin_combo.bind("<<ComboboxSelected>>", lambda _e: sync_hide_checkbox(read_board_status(board_id).get("pins", [])))
+
+        def remote_is_active() -> bool:
+            try:
+                if not bool(getattr(frame, "_sbc_remote_active", True)):
+                    return False
+                return bool(frame.winfo_exists())
+            except Exception:
+                return False
+
         def refresh_remote():
+            if not remote_is_active():
+                return
             status = read_board_status(board_id)
-            pins = status.get("pins", [])
+            pins = status.get("pins", []) if isinstance(status.get("pins", []), list) else []
             mode_var.set(status.get("resource_mode", "Static"))
+            slot = int(status.get("slot", 0) or 0)
+            capture_key = status.get("capture_key", "")
+            header_var.set(f"Remote controls for Pin Board Slot {slot:02d}" if slot else f"Remote controls for {board_id}")
             info_var.set(
-                f"PID: {status.get('pid', '')} | Pins: {status.get('pin_count', 0)} | "
-                f"Locked: {status.get('locked', False)} | Output topmost: {status.get('output_topmost', False)} | "
+                f"OBS key: {capture_key} | ID: {board_id} | PID: {status.get('pid', '')} | "
+                f"Pins: {status.get('pin_count', 0)} | Locked: {status.get('locked', False)} | "
                 f"Output: {status.get('output_title', '')}"
             )
 
@@ -1957,6 +2194,7 @@ class StreamerBoardConsole:
                 pin_var.set(values[0])
             elif not values:
                 pin_var.set("")
+            sync_hide_checkbox(pins)
 
             selected_pin_key = remember_tree_selection(pins_tree, 0)
             for item in pins_tree.get_children():
@@ -1966,15 +2204,23 @@ class StreamerBoardConsole:
                 pins_tree.insert("", "end", iid=pin_id, values=(
                     pin_id,
                     pin.get("name", ""),
+                    "YES" if bool(pin.get("visible", True)) else "HIDDEN",
                     f"{float(pin.get('x', 0)):.1f}",
                     f"{float(pin.get('y', 0)):.1f}",
                     pin.get("z", ""),
                 ))
             restore_tree_selection(pins_tree, selected_pin_key, 0)
 
-            frame.after(1200, refresh_remote)
+            try:
+                frame.after(1200, refresh_remote)
+            except Exception:
+                pass
 
         refresh_remote()
+
+    # Compatibility alias for older callers/patches.
+    def build_board_remote_tab(self, frame: ttk.Frame, board_id: str):
+        self.build_board_remote_surface(frame, board_id, host_kind="tab")
 
     def remote_pin_context_menu(self, event, tree, board_id: str, pin_var):
         iid = tree_select_under_pointer(tree, event)
@@ -1985,26 +2231,48 @@ class StreamerBoardConsole:
         pin_var.set(f"{pin_name} [{iid}]")
         menu = tk.Menu(self.root, tearoff=0)
         menu.add_command(label="Select Pin", command=lambda: send_board_command(board_id, "select_pin", {"pin_id": iid}))
+        menu.add_command(label="Hide Sticker", command=lambda: send_board_command(board_id, "set_pin_visibility", {"pin_id": iid, "visible": False}))
+        menu.add_command(label="Show Sticker", command=lambda: send_board_command(board_id, "set_pin_visibility", {"pin_id": iid, "visible": True}))
+        menu.add_separator()
+        menu.add_command(label="Hide All Stickers", command=lambda: send_board_command(board_id, "set_all_pin_visibility", {"visible": False}))
+        menu.add_command(label="Show All Stickers", command=lambda: send_board_command(board_id, "set_all_pin_visibility", {"visible": True}))
         menu.add_separator()
         menu.add_command(label="Nudge ↑", command=lambda: send_board_command(board_id, "nudge", {"pin_id": iid, "dx": 0, "dy": -5}))
         menu.add_command(label="Nudge ↓", command=lambda: send_board_command(board_id, "nudge", {"pin_id": iid, "dx": 0, "dy": 5}))
         menu.add_command(label="Nudge ←", command=lambda: send_board_command(board_id, "nudge", {"pin_id": iid, "dx": -5, "dy": 0}))
         menu.add_command(label="Nudge →", command=lambda: send_board_command(board_id, "nudge", {"pin_id": iid, "dx": 5, "dy": 0}))
         menu.add_separator()
-        menu.add_command(label="Rise Controller", command=lambda: send_board_command(board_id, "rise_to_top"))
+        menu.add_command(label="Rise Controller", command=lambda: self.rise_board_controller_for(board_id))
         menu.add_command(label="Rise Pin-Out", command=lambda: send_board_command(board_id, "rise_output"))
         menu.tk_popup(event.x_root, event.y_root)
 
     def context_kill_board_with_mem(self, board_id: str):
+        surface_kind = self.board_surface_kind(board_id)
         result = kill_board_with_mem(board_id)
         if result.get("passed"):
-            self.status_var.set(f"Kill w/Mem: {board_id} -> {result.get('new_instance_id')}")
-            self.root.after(1500, self.refresh_all)
+            new_id = str(result.get("new_instance_id", ""))
+            self.remove_board_tab(board_id, quiet=True, restore_controller=False)
+            self.close_board_breakout(board_id, quiet=True, restore_controller=False)
+            self.board_selected_key = new_id
+            if new_id:
+                if surface_kind == "tab":
+                    self.open_board_tab(new_id)
+                elif surface_kind == "breakout":
+                    self.open_board_breakout(new_id)
+            capture = result.get("capture_key", "")
+            self.status_var.set(f"Kill w/Mem: {board_id} -> {new_id} | OBS key retained: {capture}")
+            self.root.after(500, self.refresh_all)
         else:
             self.status_var.set(f"Kill w/Mem failed: {result.get('error')}")
 
     def refresh_open_board_tabs(self):
-        pass
+        active_ids = {board.instance_id for board in self.board_instances if board.running}
+        for board_id in list(self.board_control_tabs):
+            if board_id not in active_ids:
+                self.remove_board_tab(board_id, quiet=True, restore_controller=False)
+        for board_id in list(self.board_breakout_windows):
+            if board_id not in active_ids:
+                self.close_board_breakout(board_id, quiet=True, restore_controller=False)
 
     def refresh_doctor(self):
         selected_key = remember_tree_selection(self.doctor_tree, 1)
