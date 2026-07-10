@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 import os
+import shlex
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -10,6 +11,7 @@ import psutil
 
 from .paths import ADAPTER_DIR, APP_ROOT, LOG_DIR, expand_user_path
 from .adapter_control import write_app_control, build_control_payload
+from .desktop_identity import shell_prefix_for_app_id
 
 @dataclass
 class StreamerApp:
@@ -104,17 +106,46 @@ class StreamerApp:
     def log_path(self) -> Path:
         return LOG_DIR / f"{self.app_id}.log"
 
+    def desktop_identity_shell_prefix(self) -> str:
+        """Return shell exports that give child Tk apps their correct KDE identity.
+
+        This prevents apps launched from Streamer Board from inheriting
+        Streamer Board's own DIGIMANCER_TK_CLASS.
+        """
+        identity_map = {
+            "deck_card_widget": "Dcpdeckreader",
+            "swar": "Dcpdeckreader",
+            "swar_v0_6_0_rc1_r2": "Swarstandard",
+            "g502v": "Definethyio",
+            "soundcard": "Definethyio",
+        }
+
+        class_name = identity_map.get(str(self.app_id), "")
+        helper_dir = Path.home() / ".local/share/digimancer_desktop_identity_py"
+
+        if not class_name or not helper_dir.exists():
+            return ""
+
+        return (
+            f"export DIGIMANCER_TK_CLASS={shlex.quote(class_name)}; "
+            f"export PYTHONPATH={shlex.quote(str(helper_dir))}:\"${{PYTHONPATH:-}}\"; "
+        )
+
     def command(self) -> list[str]:
+        prefix = shell_prefix_for_app_id(self.app_id)
+        app_path = shlex.quote(str(self.app_path))
+        entry = shlex.quote(str(self.entry_file))
+
         if self.launch_mode == "venv_python":
-            script = self.entry_file
             return [
                 "bash",
                 "-lc",
-                f'cd "{self.app_path}" && '
-                f'if [ -d venv ]; then source venv/bin/activate; fi && '
-                f'python3 "{script}"'
+                f"{prefix}cd {app_path} && "
+                f"if [ -d venv ]; then source venv/bin/activate; fi && "
+                f"python3 {entry}",
             ]
-        return ["bash", "-lc", f'cd "{self.app_path}" && ./"{self.entry_file}"']
+
+        return ["bash", "-lc", f"{prefix}cd {app_path} && ./{entry}"]
 
     def _open_log(self):
         LOG_DIR.mkdir(parents=True, exist_ok=True)
