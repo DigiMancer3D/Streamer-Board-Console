@@ -32,6 +32,7 @@ EXCLUDE_USER_DATA_DIRS = {
     "console_instances",
     "logs",
     "web_cache",
+    "user_dump",
 }
 
 EXCLUDE_FILE_SUFFIXES = {
@@ -200,7 +201,7 @@ def _copy_release_file(src: Path, dest: Path, rel: Path) -> None:
     """Copy a public/share file, sanitizing JSON/text that may contain local paths."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     suffix = src.suffix.lower()
-    if suffix == ".json":
+    if suffix in {".json", ".sboard"}:
         try:
             data = json.loads(src.read_text(encoding="utf-8"))
             data = _sanitize_json_for_release(data)
@@ -402,6 +403,7 @@ def _write_release_docs(dest: Path, manifest: dict[str, Any]) -> list[str]:
     user_data/console_copies/
     user_data/console_instances/
     user_data/web_cache/
+user_data/user_dump/
     """
     _write_text(dest / ".gitignore", gitignore)
     written.append(".gitignore")
@@ -550,6 +552,7 @@ def inspect_release_folder(path: str | Path | None = None) -> dict[str, Any]:
         "user_data/console_copies",
         "user_data/console_instances",
         "user_data/board_instances",
+        "user_data/user_dump",
     ]
     required_status = {rel: (folder / rel).exists() for rel in required}
     forbidden_status = {rel: (folder / rel).exists() for rel in forbidden}
@@ -731,6 +734,7 @@ def inspect_share_bundle(path: str | Path | None = None) -> dict[str, Any]:
         "/console_copies/",
         "/console_instances/",
         "/board_instances/",
+        "/user_dump/",
         "/export/",
     ]
 
