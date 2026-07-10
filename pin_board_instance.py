@@ -12,7 +12,16 @@ from tkinter import ttk, filedialog, messagebox
 from sbc_core.image_cache import PinImageState, StickyImageRenderer
 from sbc_core.storage import read_json, write_json
 from sbc_core.paths import BOARD_DIR
-from sbc_core.board_registry import status_file, command_file
+from sbc_core.board_registry import (
+    allocate_board_slot,
+    capture_key_for_slot,
+    command_file,
+    controller_title_for_slot,
+    normalize_slot,
+    output_title_for_slot,
+    status_file,
+    window_class_for_slot,
+)
 from sbc_core.ui_wrap import FlowFrame
 from sbc_core.pin_back_colors import (
     DEFAULT_C1,
@@ -30,8 +39,20 @@ from sbc_core.pin_back_colors import (
 ANIMATION_PRESETS = ["pulse", "float", "slow-spin", "shake", "fade-in-out", "slide-left-right"]
 
 class PinBoardApp:
-    def __init__(self, board_path: Path | None = None, instance_id: str | None = None, delete_board_after_load: bool = False):
+    def __init__(
+        self,
+        board_path: Path | None = None,
+        instance_id: str | None = None,
+        delete_board_after_load: bool = False,
+        slot: int | None = None,
+    ):
         self.instance_id = instance_id or uuid.uuid4().hex[:12]
+        env_slot = normalize_slot(os.environ.get("SBC_PIN_BOARD_SLOT"), 0)
+        self.slot = normalize_slot(slot, env_slot) or allocate_board_slot()
+        self.capture_key = os.environ.get("SBC_PIN_CAPTURE_KEY", "").strip() or capture_key_for_slot(self.slot)
+        self.window_class = window_class_for_slot(self.slot)
+        self.controller_title = os.environ.get("SBC_PIN_CONTROLLER_TITLE", "").strip() or controller_title_for_slot(self.slot)
+        self.output_title = os.environ.get("SBC_PIN_OUTPUT_TITLE", "").strip() or output_title_for_slot(self.slot)
         self.capture_w = 1920
         self.capture_h = 1080
         self.output_scale = 0.5
@@ -40,6 +61,7 @@ class PinBoardApp:
         self.anim_fps = 0
         self.locked = False
         self.controller_topmost = False
+        self.controller_visible = True
         self.output_topmost = False
         self.output_topmost_armed = False
         self.board_path = board_path
@@ -52,9 +74,10 @@ class PinBoardApp:
         self.anim_phase = 0.0
         self.animation_job = None
         self.last_command_seq = 0
+        self.last_status_message = "Ready."
 
         self.root = tk.Tk()
-        self.root.title(f"Streamer Board - Controller - {self.instance_id}")
+        self.root.title(self.controller_title)
         self.root.geometry("1120x760+180+120")
         self.root.minsize(720, 520)
         self.root.protocol("WM_DELETE_WINDOW", self.close_instance)
@@ -68,7 +91,7 @@ class PinBoardApp:
         self.pin_back_cycle_detector = CycleCodeDetector(self.root, self.handle_pin_back_cycle_code)
 
         self.output = tk.Toplevel(self.root)
-        self.output.title(f"Streamer Board - Output - {self.instance_id}")
+        self.output.title(self.output_title)
         self.output.geometry(f"{int(self.capture_w*self.output_scale)}x{int(self.capture_h*self.output_scale)}+80+80")
         self.output.protocol("WM_DELETE_WINDOW", self.close_instance)
         self.output.bind("<Configure>", self.output_configure)
@@ -107,6 +130,7 @@ class PinBoardApp:
         top.add_button("Add Image", self.add_image)
         top.add_button("Save Board", self.save_board_as)
         top.add_button("Load Board", self.load_board_dialog)
+        top.add_button("Swap State", self.swap_state_dialog)
         top.add_button("Clear Cache", self.clear_cache)
         top.add_button("Screen Lock", self.toggle_lock)
         top.add_button("Emergency Freeze", self.emergency_freeze)
@@ -183,6 +207,15 @@ class PinBoardApp:
         ttk.Checkbutton(flip_group, text="Flip X", variable=self.flip_x_var, command=self.apply_controls).pack(side="left", padx=2)
         ttk.Checkbutton(flip_group, text="Flip Y", variable=self.flip_y_var, command=self.apply_controls).pack(side="left", padx=2)
 
+        visibility_group = control_flow.add_group()
+        self.hide_pin_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            visibility_group,
+            text="Hide Sticker",
+            variable=self.hide_pin_var,
+            command=self.apply_controls,
+        ).pack(side="left", padx=2)
+
         anim_group = control_flow.add_group("Animation Mix:")
         self.anim_vars = {}
         for name in ANIMATION_PRESETS:
@@ -191,11 +224,9 @@ class PinBoardApp:
             ttk.Checkbutton(anim_group, text=name, variable=var, command=self.apply_controls).pack(side="left", padx=1)
 
     def set_pin_back_status(self, message: str):
-        try:
-            self.root.title(f"Streamer Board - Controller - {self.instance_id} | {message}")
-            self.root.after(2400, lambda: self.root.title(f"Streamer Board - Controller - {self.instance_id}"))
-        except Exception:
-            pass
+        # Keep the slot-derived window title constant so OBS never loses its
+        # configured target. Status messages stay internal to the controller.
+        self.last_status_message = str(message)
 
     def clear_pin_back_force_flag(self):
         try:
@@ -277,7 +308,34 @@ class PinBoardApp:
         self.root.attributes("-topmost", self.controller_topmost)
         self.write_status()
 
+    def set_controller_visible(self, visible: bool, *, rise: bool = False):
+        """Show or withdraw only the controller window.
+
+        The Pin-Out/output Toplevel stays alive and unchanged so OBS capture
+        identity is not disturbed while the controller is represented by an
+        SBC tab or remote breakout surface.
+        """
+        self.controller_visible = bool(visible)
+        try:
+            if self.controller_visible:
+                self.root.deiconify()
+                if rise:
+                    self.root.lift()
+                    try:
+                        self.root.focus_force()
+                    except Exception:
+                        pass
+                    if not self.controller_topmost:
+                        self.root.attributes("-topmost", True)
+                        self.root.after(1200, lambda: self.root.attributes("-topmost", False))
+            else:
+                self.root.withdraw()
+        except Exception:
+            pass
+        self.write_status()
+
     def rise_to_top(self, short: bool = True):
+        self.controller_visible = True
         try:
             self.root.deiconify()
             self.root.lift()
@@ -340,7 +398,7 @@ class PinBoardApp:
         if self.anim_fps <= 0:
             return
         self.anim_phase += 1.0 / max(1, self.anim_fps)
-        if any(pin.animation_mix for pin in self.pins):
+        if any(pin.visible and pin.animation_mix for pin in self.pins):
             self.redraw_output()
         self.schedule_animation_tick()
 
@@ -400,6 +458,7 @@ class PinBoardApp:
             var.set(getattr(pin, key))
         self.flip_x_var.set(pin.flip_x)
         self.flip_y_var.set(pin.flip_y)
+        self.hide_pin_var.set(not bool(pin.visible))
         active = set(pin.animation_mix or [])
         for name, var in self.anim_vars.items():
             var.set(name in active)
@@ -416,6 +475,7 @@ class PinBoardApp:
                 setattr(pin, key, value)
             pin.flip_x = self.flip_x_var.get()
             pin.flip_y = self.flip_y_var.get()
+            pin.visible = not bool(self.hide_pin_var.get())
             pin.animation_mix = [name for name, var in self.anim_vars.items() if var.get()]
             self.renderer.clear()
             self.refresh_pin_dropdown()
@@ -423,6 +483,24 @@ class PinBoardApp:
             self.write_status()
         except Exception as exc:
             messagebox.showerror("Control error", str(exc))
+
+    def set_pin_visibility(self, pin_id: str, visible: bool):
+        for pin in self.pins:
+            if pin.id == pin_id:
+                pin.visible = bool(visible)
+                self.selected_id = pin.id
+                self.refresh_pin_dropdown()
+                self.load_pin_controls()
+                self.redraw_all()
+                self.write_status()
+                return
+
+    def set_all_pin_visibility(self, visible: bool):
+        for pin in self.pins:
+            pin.visible = bool(visible)
+        self.load_pin_controls()
+        self.redraw_all()
+        self.write_status()
 
     def nudge(self, dx, dy):
         pin = self.selected_pin()
@@ -476,6 +554,13 @@ class PinBoardApp:
             menu.add_command(label="Nudge ↓", command=lambda: self.nudge(0, 5))
             menu.add_command(label="Nudge ←", command=lambda: self.nudge(-5, 0))
             menu.add_command(label="Nudge →", command=lambda: self.nudge(5, 0))
+            menu.add_separator()
+            if hit.visible:
+                menu.add_command(label="Hide Selected Sticker", command=lambda: self.set_pin_visibility(hit.id, False))
+            else:
+                menu.add_command(label="Show Selected Sticker", command=lambda: self.set_pin_visibility(hit.id, True))
+            menu.add_command(label="Hide All Stickers", command=lambda: self.set_all_pin_visibility(False))
+            menu.add_command(label="Show All Stickers", command=lambda: self.set_all_pin_visibility(True))
             menu.add_separator()
         menu.add_command(label="Rise Controller", command=lambda: self.rise_to_top(short=True))
         menu.add_command(label="Rise Pin-Out", command=self.rise_output)
@@ -533,6 +618,8 @@ class PinBoardApp:
         self.output_canvas.delete("all")
         self.output_canvas.configure(bg=self.chroma_key)
         for pin in sorted(self.pins, key=lambda p: p.z):
+            if not pin.visible:
+                continue
             try:
                 temp = PinImageState.from_dict(pin.to_dict())
                 ox, oy, rot, scale_add, opacity_mult = self.animation_offsets(pin)
@@ -577,9 +664,14 @@ class PinBoardApp:
 
         for pin in sorted(self.pins, key=lambda p: p.z):
             px, py = self.board_to_controller(pin.x, pin.y)
-            color = "#00ffff" if pin.id == self.selected_id else "#ffffff"
+            if not pin.visible:
+                color = "#888888"
+                label = f"{pin.name} [HIDDEN]"
+            else:
+                color = "#00ffff" if pin.id == self.selected_id else "#ffffff"
+                label = pin.name
             c.create_oval(px - 6, py - 6, px + 6, py + 6, outline=color, width=2)
-            c.create_text(px + 8, py, text=pin.name, anchor="w", fill=color)
+            c.create_text(px + 8, py, text=label, anchor="w", fill=color)
 
         if self.locked:
             c.create_text(c.winfo_width() - 20, 20, text="LOCKED", anchor="ne", fill="#ff4444", font=("TkDefaultFont", 14, "bold"))
@@ -608,7 +700,7 @@ class PinBoardApp:
 
     def board_payload(self):
         return {
-            "version": "0.1.4-mvp",
+            "version": "0.1.5-mvp",
             "capture": {
                 "width": self.capture_w,
                 "height": self.capture_h,
@@ -642,6 +734,25 @@ class PinBoardApp:
         if path:
             self.load_board(Path(path))
 
+    def swap_state_dialog(self):
+        path = filedialog.askopenfilename(
+            title="Swap Pin Board state",
+            initialdir=BOARD_DIR,
+            filetypes=[("Streamer Board", "*.sboard"), ("JSON", "*.json"), ("All files", "*.*")],
+        )
+        if path:
+            self.swap_state(Path(path))
+
+    def swap_state(self, path: Path):
+        path = Path(path).expanduser()
+        if not path.exists() or not path.is_file():
+            self.set_pin_back_status(f"Swap State failed: file not found: {path}")
+            return
+        # load_board changes only the saved visual state. The process, internal
+        # instance ID, stable slot, output window, title and WM_CLASS remain.
+        self.load_board(path)
+        self.set_pin_back_status(f"Swapped state: {path.name}")
+
     def load_board(self, path: Path):
         data = read_json(path, {})
         cap = data.get("capture", {})
@@ -668,12 +779,15 @@ class PinBoardApp:
 
     def status_payload(self):
         return {
-            "version": "0.1.3-mvp",
+            "version": "0.1.5-mvp",
             "instance_id": self.instance_id,
             "pid": os.getpid(),
-            "title": f"Pin Board {self.instance_id}",
-            "controller_title": self.root.title(),
-            "output_title": self.output.title(),
+            "slot": self.slot,
+            "capture_key": self.capture_key,
+            "window_class": self.window_class,
+            "title": f"Pin Board Slot {self.slot:02d}",
+            "controller_title": self.controller_title,
+            "output_title": self.output_title,
             "board_path": str(self.board_path or ""),
             "heartbeat": time.time(),
             "resource_mode": self.resource_mode,
@@ -681,12 +795,13 @@ class PinBoardApp:
             "chroma_key": self.chroma_key,
             "locked": self.locked,
             "controller_topmost": self.controller_topmost,
+            "controller_visible": self.controller_visible,
             "output_topmost": self.output_topmost,
             "selected_id": self.selected_id,
             "pin_count": len(self.pins),
             "snapshot": self.board_payload(),
             "pins": [
-                {"id": pin.id, "name": pin.name, "x": pin.x, "y": pin.y, "z": pin.z}
+                {"id": pin.id, "name": pin.name, "x": pin.x, "y": pin.y, "z": pin.z, "visible": pin.visible}
                 for pin in sorted(self.pins, key=lambda p: p.z)
             ],
         }
@@ -715,6 +830,11 @@ class PinBoardApp:
             self.controller_topmost = bool(payload.get("enabled", True))
             self.topmost_var.set(self.controller_topmost)
             self.root.attributes("-topmost", self.controller_topmost)
+        elif command == "set_controller_visible":
+            self.set_controller_visible(
+                bool(payload.get("visible", True)),
+                rise=bool(payload.get("rise", False)),
+            )
         elif command == "emergency_freeze":
             self.emergency_freeze()
         elif command == "toggle_lock":
@@ -730,6 +850,14 @@ class PinBoardApp:
         elif command == "nudge":
             self.select_pin_id(str(payload.get("pin_id", self.selected_id or "")))
             self.nudge(float(payload.get("dx", 0)), float(payload.get("dy", 0)))
+        elif command == "set_pin_visibility":
+            self.set_pin_visibility(str(payload.get("pin_id", "")), bool(payload.get("visible", True)))
+        elif command == "set_all_pin_visibility":
+            self.set_all_pin_visibility(bool(payload.get("visible", True)))
+        elif command == "swap_state":
+            path = str(payload.get("path", "")).strip()
+            if path:
+                self.swap_state(Path(path))
         elif command == "set_pin_back":
             self.set_pin_back_color(str(payload.get("color", self.chroma_key)), str(payload.get("source", "console")))
         elif command == "pin_back_helper":
@@ -755,10 +883,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--board", default="")
     parser.add_argument("--instance-id", default="")
+    parser.add_argument("--slot", type=int, default=0)
     parser.add_argument("--delete-board-after-load", action="store_true")
     args = parser.parse_args()
     board_path = Path(args.board).expanduser() if args.board else None
-    app = PinBoardApp(board_path, args.instance_id or None, args.delete_board_after_load)
+    slot = normalize_slot(args.slot, normalize_slot(os.environ.get("SBC_PIN_BOARD_SLOT"), 0)) or allocate_board_slot()
+    app = PinBoardApp(board_path, args.instance_id or None, args.delete_board_after_load, slot=slot)
     app.run()
 
 if __name__ == "__main__":
