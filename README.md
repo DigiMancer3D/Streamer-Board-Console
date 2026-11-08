@@ -17,7 +17,7 @@
 
 **Streamer Board & Console (SBC)** is the central desktop workspace for reusable streamer utilities. It provides one place to discover and start registered apps, manage workflows and studio profiles, and work with saved pinboards rather than scattering every function across separate windows.
 
-Its app-adapter system is designed to keep each utility independent. An adapter identifies how a tool starts; it can be given a friendly display name without altering its underlying identity. The November 2026 update introduces **Rename App** on the Apps tab, including support for human-readable names for Field Guide Forge and custom episode launchers.
+Its app-adapter system is designed to keep each utility independent. An adapter identifies how a tool starts; it can be given a friendly display name without altering its underlying identity. **Rename App** on the Apps tab, includes support for human-readable names for Field Guide Forge and custom episode launchers.
 
 ## What you can do
 
@@ -59,7 +59,7 @@ An adapter defines a stable application key, its command or path, and optional p
 3. Enter the label you'd like the SBC UI to show, such as **Newest Episode FGF** or **3DCP Broadcaster**.
 4. Save and verify the application still launches.
 
-The rename updates only the adapter's `display_name`, **not** its stable ID, executable, pinboard links or Studio Profile references. The local adapter JSON is user-owned; keep real adapters containing personal paths out of GitHub. The November alpha ships this behavior through the main source and `sbc_app_names.py`.
+The rename updates only the adapter's `display_name`, **not** its stable ID, executable, pinboard links or Studio Profile references. The local adapter JSON is user-owned; keep real adapters containing personal paths out of GitHub. The alpha ships this behavior through the main source and `sbc_app_names.py`.
 
 ## Field Guide Forge launchers
 
