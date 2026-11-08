@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+# SBC editable app display names (stable IDs retained)
+from sbc_app_names import rename_app as _sbc_rename_app
 
 import os
 import signal
@@ -296,6 +298,7 @@ class StreamerBoardConsole:
             bar = FlowFrame(box)
             bar.pack(fill="x", pady=4)
             bar.add_button("Launch", lambda a=app: self.action(a.launch()))
+            bar.add_button("Rename App", lambda a=app, frame=box: _sbc_rename_app(self, a, frame))
             bar.add_button("Close", lambda a=app: self.action(a.close()))
             bar.add_button("Restart", lambda a=app: self.action(a.restart()))
             bar.add_button("Pause & Park", lambda a=app: self.action(a.pause_park()))
