@@ -1,259 +1,142 @@
-# Streamer Board & Console
+<div align="center">
 
-<p align="center">
-  <strong>A low-resource local control hub for streamer overlays, OBS helper windows, profile actions, app adapters, and reusable pin boards.</strong>
-</p>
+# 🖥️ Streamer Board & Console
+### One local control desk for the rest of your stream.
 
-<p align="center">
-  <img alt="Platform" src="https://img.shields.io/badge/platform-Linux%20%7C%20Kubuntu%20tested-informational">
-  <img alt="Python" src="https://img.shields.io/badge/python-3.12+-blue">
-  <img alt="UI" src="https://img.shields.io/badge/UI-Tkinter-lightgrey">
-  <img alt="OBS" src="https://img.shields.io/badge/OBS-friendly-purple">
-  <img alt="Release" src="https://img.shields.io/badge/release-v0.4.5-green">
-</p>
+**A modular desktop hub for app launching, studio profiles, reusable pinboards, and OBS-friendly creator utilities.**
 
----
+[![Python](https://img.shields.io/badge/Python-3-3776AB?logo=python&logoColor=white)](https://python.org) [![Desktop](https://img.shields.io/badge/Desktop-Tkinter-166534)](#getting-started) [![Architecture](https://img.shields.io/badge/Architecture-Adapters-0F766E)](#apps-and-adapters) [![Status](https://img.shields.io/badge/Status-Alpha-F59E0B)](#release-status)
 
-## What is this?
+**[Features](#what-you-can-do) · [Install](#getting-started) · [Rename apps](#rename-app) · [FGF launchers](#field-guide-forge-launchers) · [Integrations](#connected-studio-workflow)**
 
-**Streamer Board & Console** is a local desktop command center for running and coordinating small streamer tools. It was built for a low-resource OBS workflow where separate apps can be launched, parked, closed, monitored, and combined into show profiles.
-
-The project currently focuses on:
-
-- **App adapters** for launching and controlling streamer helper apps.
-- **Studio Profiles** for one-click show states such as Gaming, Clean Visuals, Talk / Podcast, or custom app mixes.
-- **Pin Boards** for OBS-friendly image boards and screen elements.
-- **Hotkey control files** so compatible apps can turn hotkeys on/off without global keyboard blocking.
-- **Template-based integrations** so more apps can be added later.
-- **Console Copier** for multiple isolated Streamer Board & Console instances.
-- **Release Prep** for building clean public upload folders.
-
-This is an initial public release. It is meant to be practical, hackable, and easy to extend.
+</div>
 
 ---
 
-## Supported / staged companion apps
+## Overview
 
-Streamer Board & Console can run by itself, but it is designed to work best with companion apps from the same GitHub account.
+**Streamer Board & Console (SBC)** is the central desktop workspace for reusable streamer utilities. It provides one place to discover and start registered apps, manage workflows and studio profiles, and work with saved pinboards rather than scattering every function across separate windows.
 
-| App | Purpose | Adapter status |
-| --- | --- | --- |
-| Soundcard | Microphone / audio visualizer for stream scenes | Native hotkey control supported |
-| G502V | Mouse / G502 visualizer for OBS and input feedback | Native hotkey control supported |
-| Bitninja Mocap Lite | OBS-focused VTuber mocap | Launch / close / profile template |
-| Deck Card Widget | Low-resource deck-card OBS overlay controller | Launch / close / profile template |
-| SWAR Script Writer/Reader | Script writer / reader for show planning | Launch / close / profile template |
+Its app-adapter system is designed to keep each utility independent. An adapter identifies how a tool starts; it can be given a friendly display name without altering its underlying identity. The November 2026 update introduces **Rename App** on the Apps tab, including support for human-readable names for Field Guide Forge and custom episode launchers.
 
-You can use only the apps you want. Templates stay editable inside the **Apps** tab.
+## What you can do
 
----
+| Area | Purpose |
+|:--|:--|
+| Dashboard | See registered/running apps and resource information |
+| Apps | Launch and manage adapters, now with editable display names |
+| Hotkeys | Configure available global or app-level shortcuts |
+| Pin Boards | Create/load reusable boards and sticker layouts (`.sboard`) |
+| Studio Profiles | Group applications and studio behavior into reusable setups |
+| Backup / Migrate | Move or preserve supported user configuration |
+| Doctor | Inspect supported application setup and dependencies |
+| Console Copier / Release Prep | Utilities for debugging and release workflows |
 
-## Quick start on Kubuntu / Ubuntu
+The exact tabs and capabilities may vary with the current alpha source and the installed adapters.
 
-```bash
-chmod +x install_kubuntu.sh launch_streamer_board_console.sh launch_streamer_board_console_rescue.sh tools/*.sh tools/*.py
-./install_kubuntu.sh
-./tools/sbc_selftest.sh
-./launch_streamer_board_console.sh
-```
+## Getting started
 
-The installer creates a local `.venv` inside this folder and installs the Python dependencies listed in `requirements.txt`.
+### Requirements
 
----
-
-## Install optional companion apps
-
-The console package includes templates for the companion apps, but it does not require them. To clone the public companion repositories into one local folder, run:
+- Python 3 and Tkinter, plus the dependencies declared in this repository's setup files.
+- A local desktop environment. Optional connected tools must be installed separately.
 
 ```bash
-chmod +x install_optional_streamer_apps.sh
-./install_optional_streamer_apps.sh
+# From a Streamer-Board-Console checkout
+python3 streamer_board_console.py
 ```
 
-By default this creates:
+If your checkout includes a documented launcher or setup script, prefer it. Use the **Apps** tab to register or locate supported tools instead of editing Python source to hardcode private machine paths.
 
-```text
-~/SBC_Streamer_Apps/
-├── Bitninja-Mocap-Lite/
-├── Deck-Card-Widget/
-├── G502V/
-├── soundcard/
-└── 3DChangesPerspectives/
+## Apps and adapters
+
+An adapter defines a stable application key, its command or path, and optional presentation/configuration data. The core program can display a user-friendly label while retaining the adapter's stable ID for profile and automation relationships.
+
+### Rename App
+
+1. Open **Apps** and select a registered application.
+2. Choose **Rename App**.
+3. Enter the label you'd like the SBC UI to show, such as **Newest Episode FGF** or **3DCP Broadcaster**.
+4. Save and verify the application still launches.
+
+The rename updates only the adapter's `display_name`, **not** its stable ID, executable, pinboard links or Studio Profile references. The local adapter JSON is user-owned; keep real adapters containing personal paths out of GitHub. The November alpha ships this behavior through the main source and `sbc_app_names.py`.
+
+## Field Guide Forge launchers
+
+**[Field Guide Forge](https://github.com/DigiMancer3D/Field-Guide-Forge)** can be launched from its normal `launch.sh` entry point. An optional native **FGF-BCL** utility generates show-specific broadcaster scripts (for example `3DCP_BCLaunch.sh`) that find the newest eligible *host/private* FGF episode HTML whenever launched.
+
+Recommended SBC setup:
+
+| Adapter | Target | Label suggestion |
+|:--|:--|:--|
+| FGF editor | Existing `FGF/launch.sh` on the user's machine | `FGF Editor` |
+| FGF broadcaster | Generated `*_BCLaunch.sh` | `Newest Episode FGF` |
+| DMS | Installed DMS launcher | `DMS Live Switcher` |
+| Deck Card Widget | Installed DCW launcher | `Deck Card Widget` |
+
+Don't commit actual absolute paths as generic templates. Each user should select their own app locations and show directories.
+
+## Connected studio workflow
+
+```mermaid
+flowchart LR
+  SBC[Streamer Board & Console] -->|Launch| FGF[FGF Editor / Broadcaster]
+  SBC -->|Launch| DMS[DMS Live Switcher]
+  SBC -->|Launch| DCW[Deck Card Widget]
+  FGF -->|Paired host Studio Cues| DMS
+  DMS -->|Card + QR requests| DCW
+  DMS -->|Pinboard requests| SBC
+  SBC -->|Pinboard output| OBS[OBS]
+  DCW -->|Deck output| OBS
+  FGF -->|Proof/presenter display| OBS
 ```
 
-After cloning, open **Apps → Adapter Templates** and point each template to the folder and launch script that exists on your machine.
+DMS handles validated deck and pinboard selection. SBC keeps its role as the app and pinboard control hub. No tool requires public Internet access to send local studio switching requests.
 
----
+## Repository organization
 
-## Main tabs
+| Source path | Purpose |
+|:--|:--|
+| `streamer_board_console.py` | Main application/controller |
+| `sbc_app_names.py` | User-visible adapter rename helper |
+| `sbc_core/` | Shared core support where present |
+| `adapter_templates/` | Safe starter configurations |
+| `adapters/` | Adapter definitions; review carefully before publishing |
+| `docs/`, `assets/` | Help, visuals, troubleshooting and supporting material |
 
-### Dashboard
+**Important:** A folder name in this table describes a known component of the project family, not a guarantee that the folder is present in every commit.
 
-Shows running app and pin-board status, process IDs, RAM, and CPU.
+## Data protection & backups
 
-### Apps
+User profiles, real app adapters, personal paths and pinboard collections belong **outside public source releases** unless deliberately sanitized. Don't publish `user_data/`, active `.sboard` saves, pairing tokens, show-specific labels with private paths, or dated backup files. Back up relevant local configuration before switching alpha versions.
 
-Launch, close, restart, pause, resume, and write hotkey control files for active adapters. This tab also includes **Adapter Templates**, where you can create new app templates or update existing paths.
+When distributing adapter examples, use a generic user-configurable path instead of the developer's `HOME` directory.
 
-### Hotkeys
+## Troubleshooting
 
-Shows adapter hotkey data and control-file status.
+<details><summary><strong>Rename App is missing</strong></summary>
 
-### Pin Boards
+Verify the installed `streamer_board_console.py` matches the new `sbc_app_names.py` helper, restart SBC, and check the **Apps** tab. Updating only the helper file is not sufficient.
 
-Launches reusable image boards for OBS. Boards are separate windows that can be captured by OBS.
+</details>
 
-### Studio Profiles
+<details><summary><strong>The renamed application doesn't start</strong></summary>
 
-Creates one-click combinations across all active adapters. Each row can set:
+The label does not change the executable command. Recheck the adapter's configured launch target and permissions.
 
-- hotkeys on/off
-- local/live mode placeholder
-- action: Keep, Launch, Close, Restart, Pause, or Resume
+</details>
 
-The profile editor is dynamic. Newly enabled adapters appear with **Keep** as the default action.
+<details><summary><strong>FGF-BCL opens the wrong episode</strong></summary>
 
-### Backup / Migrate
+Review its configured show-name priorities, `EP` detection pattern, and private/broadcast filename filters. SBC launches the generated script; FGF-BCL chooses the episode.
 
-Exports and imports user data. Also migrates settings from previous `Streamer_Board_Console_MVP_*` folders.
+</details>
 
-### Console Copier
 
-Creates isolated `.sbconsole` console copies. Each copy can have its own:
+## Ecosystem
 
-- `user_data`
-- profiles
-- adapters
-- adapter templates
-- app controls
+[DMST](https://github.com/DigiMancer3D/DMST) · [DMS Live Switcher](https://github.com/DigiMancer3D/DMS-Live-Switcher) · [Deck Card Widget](https://github.com/DigiMancer3D/Deck-Card-Widget) · [Field Guide Forge](https://github.com/DigiMancer3D/Field-Guide-Forge)
 
-This is useful when one machine needs multiple show setups.
+Made by **[DigiMancer3D](https://github.com/DigiMancer3D)**
 
----
-
-## Emoji sync
-
-This release includes a shared emoji table:
-
-```text
-user_data/current.emoji
-```
-
-The optional app installer copies that file into companion app folders when possible. The goal is simple: keep a single unified emoji style across tools without forcing every app to share one runtime database.
-
----
-
-## Adapter templates
-
-Adapter templates live in:
-
-```text
-adapter_templates/
-```
-
-Enabled adapters live in:
-
-```text
-adapters/
-```
-
-A minimal adapter template looks like:
-
-```json
-{
-  "app_id": "my_app",
-  "display_name": "My App",
-  "default_path": "~/My-App",
-  "launch_mode": "shell",
-  "entry_file": "launch_my_app.sh",
-  "control_file": "user_data/app_controls/my_app.control.json",
-  "supports": {
-    "launch_close": true,
-    "restart": true,
-    "resource_monitor": true,
-    "pause_park_suspend": true,
-    "hotkeys_toggle": false,
-    "hotkey_remap": false,
-    "local_live_toggle": false,
-    "theme_sync": false,
-    "emoji_sync": false
-  },
-  "default_hotkeys": [],
-  "notes": "Describe anything the user must know before enabling."
-}
-```
-
-For a fuller integration guide, see:
-
-```text
-HOW2_INTEGRATE_ADAPTERS.md
-```
-
----
-
-## Useful commands
-
-Run the console:
-
-```bash
-./launch_streamer_board_console.sh
-```
-
-Run the rescue launcher if the window appears off-screen:
-
-```bash
-./launch_streamer_board_console_rescue.sh
-```
-
-Run selftests:
-
-```bash
-./tools/sbc_selftest.sh
-```
-
-Check app adapters:
-
-```bash
-./tools/sbc_adapter_doctor.py
-```
-
-List console copies:
-
-```bash
-./tools/sbc_console_copier.py --list
-```
-
-Create a console copy:
-
-```bash
-./tools/sbc_console_copier.py --create "Second Show Console"
-```
-
-Build a clean release export:
-
-```bash
-./tools/sbc_release_prep.py --build
-./tools/sbc_release_prep.py --inspect
-```
-
----
-
-## Release types
-
-### Standard public release
-
-Use this repo as the normal public release. It contains the console, templates, tools, docs, and clean default data.
-
-### Full local bundle
-
-A full bundle can include local copies of companion apps. This is useful for private testing or curated release zips. To build one from a local machine with all companion apps already present:
-
-```bash
-chmod +x build_full_streamer_bundle.sh
-./build_full_streamer_bundle.sh
-```
-
-The full bundle script removes common private/runtime data such as `.git`, `.venv`, `node_modules`, caches, logs, and old runtime folders.
-
----
 
